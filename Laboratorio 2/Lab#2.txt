@@ -1,0 +1,542 @@
+import java.util.*;
+
+// Clase para representar un nodo del Árbol B+
+class BPTreeNode {
+    List<Integer> claves;           // Lista de claves del nodo
+    List<BPTreeNode> hijos;         // Lista de hijos (solo para nodos internos)
+    boolean esHoja;                 // Indica si es un nodo hoja
+    BPTreeNode siguiente;           // Puntero al siguiente nodo hoja
+    BPTreeNode anterior;            // Puntero al anterior nodo hoja
+    BPTreeNode padre;               // Puntero al nodo padre
+    
+    public BPTreeNode(boolean esHoja) {
+        this.esHoja = esHoja;
+        this.claves = new ArrayList<>();
+        this.hijos = new ArrayList<>();
+        this.siguiente = null;
+        this.anterior = null;
+        this.padre = null;
+    }
+}
+
+// Clase para el resultado de división de nodo
+class ResultadoSplit {
+    int claveMediana;
+    BPTreeNode nodoIzquierdo;
+    BPTreeNode nodoDerecho;
+    
+    public ResultadoSplit(int claveMediana, BPTreeNode izq, BPTreeNode der) {
+        this.claveMediana = claveMediana;
+        this.nodoIzquierdo = izq;
+        this.nodoDerecho = der;
+    }
+}
+
+// Clase principal del Árbol B+
+public class BPlusTreeMejorado {
+    private BPTreeNode raiz;
+    private int d; // Orden mínimo
+    
+    public BPlusTreeMejorado(int orden) {
+        this.d = orden;
+        this.raiz = new BPTreeNode(true); // La raíz inicial es una hoja
+    }
+    
+    // Método para limpiar la consola
+    public static void limpiarConsola() {
+        try {
+            // Para Windows
+            if (System.getProperty("os.name").contains("Windows")) {
+                new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
+            } else {
+                // Para Linux/Mac
+                System.out.print("\033[2J\033[H");
+                System.out.flush();
+            }
+        } catch (Exception e) {
+            // Si no funciona, simplemente imprimir líneas vacías
+            for (int i = 0; i < 50; i++) {
+                System.out.println();
+            }
+        }
+    }
+    
+    // Método público para insertar
+    public void insertar(int clave) {
+        ResultadoSplit resultado = insertarRecursivo(raiz, clave);
+        
+        // Si la raíz se dividió, crear nueva raíz
+        if (resultado != null) {
+            BPTreeNode nuevaRaiz = new BPTreeNode(false);
+            nuevaRaiz.claves.add(resultado.claveMediana);
+            nuevaRaiz.hijos.add(resultado.nodoIzquierdo);
+            nuevaRaiz.hijos.add(resultado.nodoDerecho);
+            resultado.nodoIzquierdo.padre = nuevaRaiz;
+            resultado.nodoDerecho.padre = nuevaRaiz;
+            raiz = nuevaRaiz;
+        }
+        
+        // Mostrar árbol automáticamente después de insertar
+        limpiarConsola();
+        System.out.println("🌳═══════════════════════════════════════════════════════════════════════");
+        System.out.println("                        ARBOL B+ ACTUALIZADO                             ");
+        System.out.println("═══════════════════════════════════════════════════════════════════════🌳");
+        imprimirPorNiveles();
+        System.out.println("\nPresione Enter para continuar...");
+        try { System.in.read(); } catch (Exception e) {}
+    }
+    
+    // Método recursivo para insertar
+    private ResultadoSplit insertarRecursivo(BPTreeNode nodoActual, int clave) {
+        if (nodoActual.esHoja) {
+            // Insertar en nodo hoja manteniendo orden
+            int pos = Collections.binarySearch(nodoActual.claves, clave);
+            if (pos < 0) pos = -(pos + 1);
+            else return null; // Clave ya existe
+            
+            nodoActual.claves.add(pos, clave);
+            
+            // Verificar si necesita división (más restrictivo para obtener más niveles)
+            if (nodoActual.claves.size() >= 2 * d + 1) {
+                return dividirNodo(nodoActual);
+            }
+        } else {
+            // Encontrar hijo correcto para insertar
+            int pos = Collections.binarySearch(nodoActual.claves, clave);
+            if (pos < 0) pos = -(pos + 1);
+            
+            ResultadoSplit resultadoHijo = insertarRecursivo(nodoActual.hijos.get(pos), clave);
+            
+            if (resultadoHijo != null) {
+                // Insertar clave mediana en nodo actual
+                nodoActual.claves.add(pos, resultadoHijo.claveMediana);
+                nodoActual.hijos.set(pos, resultadoHijo.nodoIzquierdo);
+                nodoActual.hijos.add(pos + 1, resultadoHijo.nodoDerecho);
+                resultadoHijo.nodoIzquierdo.padre = nodoActual;
+                resultadoHijo.nodoDerecho.padre = nodoActual;
+                
+                // Verificar si necesita división (más restrictivo para obtener más niveles)
+                if (nodoActual.claves.size() >= 2 * d + 1) {
+                    return dividirNodo(nodoActual);
+                }
+            }
+        }
+        return null;
+    }
+    
+    // Método para dividir un nodo
+    private ResultadoSplit dividirNodo(BPTreeNode nodoLleno) {
+        int mitad = nodoLleno.claves.size() / 2;
+        int claveMediana = nodoLleno.claves.get(mitad);
+        
+        if (nodoLleno.esHoja) {
+            // División de nodo hoja - la clave mediana se COPIA al nodo derecho
+            BPTreeNode nodoIzquierdo = new BPTreeNode(true);
+            BPTreeNode nodoDerecho = new BPTreeNode(true);
+            
+            // Distribuir claves - división balanceada
+            for (int i = 0; i < mitad; i++) {
+                nodoIzquierdo.claves.add(nodoLleno.claves.get(i));
+            }
+            for (int i = mitad; i < nodoLleno.claves.size(); i++) {
+                nodoDerecho.claves.add(nodoLleno.claves.get(i));
+            }
+            
+            // Actualizar enlaces de nodos hoja
+            nodoIzquierdo.siguiente = nodoDerecho;
+            nodoDerecho.anterior = nodoIzquierdo;
+            
+            if (nodoLleno.anterior != null) {
+                nodoLleno.anterior.siguiente = nodoIzquierdo;
+                nodoIzquierdo.anterior = nodoLleno.anterior;
+            }
+            if (nodoLleno.siguiente != null) {
+                nodoLleno.siguiente.anterior = nodoDerecho;
+                nodoDerecho.siguiente = nodoLleno.siguiente;
+            }
+            
+            return new ResultadoSplit(claveMediana, nodoIzquierdo, nodoDerecho);
+        } else {
+            // División de nodo interno - la clave mediana se MUEVE hacia arriba
+            BPTreeNode nodoIzquierdo = new BPTreeNode(false);
+            BPTreeNode nodoDerecho = new BPTreeNode(false);
+            
+            // Distribuir claves (sin incluir la mediana)
+            for (int i = 0; i < mitad; i++) {
+                nodoIzquierdo.claves.add(nodoLleno.claves.get(i));
+            }
+            for (int i = mitad + 1; i < nodoLleno.claves.size(); i++) {
+                nodoDerecho.claves.add(nodoLleno.claves.get(i));
+            }
+            
+            // Distribuir hijos
+            for (int i = 0; i <= mitad; i++) {
+                BPTreeNode hijo = nodoLleno.hijos.get(i);
+                nodoIzquierdo.hijos.add(hijo);
+                hijo.padre = nodoIzquierdo;
+            }
+            for (int i = mitad + 1; i < nodoLleno.hijos.size(); i++) {
+                BPTreeNode hijo = nodoLleno.hijos.get(i);
+                nodoDerecho.hijos.add(hijo);
+                hijo.padre = nodoDerecho;
+            }
+            
+            return new ResultadoSplit(claveMediana, nodoIzquierdo, nodoDerecho);
+        }
+    }
+    
+    // Método público para eliminar
+    public boolean eliminar(int clave) {
+        boolean eliminado = eliminarRecursivo(raiz, clave);
+        
+        // Si la raíz se quedó vacía y no es hoja
+        if (!raiz.esHoja && raiz.claves.isEmpty()) {
+            if (!raiz.hijos.isEmpty()) {
+                raiz = raiz.hijos.get(0);
+                raiz.padre = null;
+            }
+        }
+        
+        if (eliminado) {
+            // Mostrar árbol automáticamente después de eliminar
+            limpiarConsola();
+            System.out.println("");
+            System.out.println("                        ARBOL B+ ACTUALIZADO                             ");
+            System.out.println("");
+            imprimirPorNiveles();
+            System.out.println("\nPresione Enter para continuar...");
+            try { System.in.read(); } catch (Exception e) {}
+        }
+        
+        return eliminado;
+    }
+    
+    // Método recursivo para eliminar
+    private boolean eliminarRecursivo(BPTreeNode nodo, int clave) {
+        if (nodo.esHoja) {
+            int pos = nodo.claves.indexOf(clave);
+            if (pos == -1) return false;
+            
+            nodo.claves.remove(pos);
+            
+            // Si es la raíz, no necesita rebalanceo
+            if (nodo == raiz) return true;
+            
+            // Verificar si necesita rebalanceo
+            if (nodo.claves.size() < d) {
+                rebalancearNodo(nodo);
+            }
+            return true;
+        } else {
+            // Encontrar hijo correcto
+            int pos = Collections.binarySearch(nodo.claves, clave);
+            if (pos < 0) pos = -(pos + 1);
+            
+            boolean eliminado = eliminarRecursivo(nodo.hijos.get(pos), clave);
+            
+            if (eliminado && nodo != raiz && nodo.claves.size() < d) {
+                rebalancearNodo(nodo);
+            }
+            
+            return eliminado;
+        }
+    }
+    
+    // Método para rebalancear un nodo después de eliminación
+    private void rebalancearNodo(BPTreeNode nodo) {
+        BPTreeNode padre = nodo.padre;
+        if (padre == null) return;
+        
+        int posEnPadre = padre.hijos.indexOf(nodo);
+        BPTreeNode hermanoIzq = (posEnPadre > 0) ? padre.hijos.get(posEnPadre - 1) : null;
+        BPTreeNode hermanoDer = (posEnPadre < padre.hijos.size() - 1) ? padre.hijos.get(posEnPadre + 1) : null;
+        
+        // Intentar redistribución con hermano izquierdo
+        if (hermanoIzq != null && hermanoIzq.claves.size() > d) {
+            redistribuirDeIzquierda(nodo, hermanoIzq, padre, posEnPadre - 1);
+            return;
+        }
+        
+        // Intentar redistribución con hermano derecho
+        if (hermanoDer != null && hermanoDer.claves.size() > d) {
+            redistribuirDeDerecha(nodo, hermanoDer, padre, posEnPadre);
+            return;
+        }
+        
+        // Fusionar nodos
+        if (hermanoIzq != null) {
+            fusionarNodos(hermanoIzq, nodo, padre, posEnPadre - 1);
+        } else if (hermanoDer != null) {
+            fusionarNodos(nodo, hermanoDer, padre, posEnPadre);
+        }
+    }
+    
+    // Redistribuir desde el hermano izquierdo
+    private void redistribuirDeIzquierda(BPTreeNode nodo, BPTreeNode hermanoIzq, BPTreeNode padre, int posClaveEnPadre) {
+        if (nodo.esHoja) {
+            // Mover la última clave del hermano izquierdo al nodo actual
+            int claveMovida = hermanoIzq.claves.remove(hermanoIzq.claves.size() - 1);
+            nodo.claves.add(0, claveMovida);
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, nodo.claves.get(0));
+        } else {
+            // Nodo interno
+            int claveDelPadre = padre.claves.get(posClaveEnPadre);
+            nodo.claves.add(0, claveDelPadre);
+            
+            // Mover hijo del hermano
+            BPTreeNode hijoMovido = hermanoIzq.hijos.remove(hermanoIzq.hijos.size() - 1);
+            nodo.hijos.add(0, hijoMovido);
+            hijoMovido.padre = nodo;
+            
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, hermanoIzq.claves.remove(hermanoIzq.claves.size() - 1));
+        }
+    }
+    
+    // Redistribuir desde el hermano derecho
+    private void redistribuirDeDerecha(BPTreeNode nodo, BPTreeNode hermanoDer, BPTreeNode padre, int posClaveEnPadre) {
+        if (nodo.esHoja) {
+            // Mover la primera clave del hermano derecho al nodo actual
+            int claveMovida = hermanoDer.claves.remove(0);
+            nodo.claves.add(claveMovida);
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, hermanoDer.claves.get(0));
+        } else {
+            // Nodo interno
+            int claveDelPadre = padre.claves.get(posClaveEnPadre);
+            nodo.claves.add(claveDelPadre);
+            
+            // Mover hijo del hermano
+            BPTreeNode hijoMovido = hermanoDer.hijos.remove(0);
+            nodo.hijos.add(hijoMovido);
+            hijoMovido.padre = nodo;
+            
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, hermanoDer.claves.remove(0));
+        }
+    }
+    
+    // Fusionar dos nodos
+    private void fusionarNodos(BPTreeNode nodoIzq, BPTreeNode nodoDer, BPTreeNode padre, int posClaveEnPadre) {
+        if (nodoIzq.esHoja) {
+            // Fusionar nodos hoja
+            nodoIzq.claves.addAll(nodoDer.claves);
+            
+            // Actualizar enlaces
+            nodoIzq.siguiente = nodoDer.siguiente;
+            if (nodoDer.siguiente != null) {
+                nodoDer.siguiente.anterior = nodoIzq;
+            }
+        } else {
+            // Fusionar nodos internos
+            nodoIzq.claves.add(padre.claves.get(posClaveEnPadre));
+            nodoIzq.claves.addAll(nodoDer.claves);
+            
+            // Mover hijos
+            for (BPTreeNode hijo : nodoDer.hijos) {
+                nodoIzq.hijos.add(hijo);
+                hijo.padre = nodoIzq;
+            }
+        }
+        
+        // Eliminar clave y hijo del padre
+        padre.claves.remove(posClaveEnPadre);
+        padre.hijos.remove(nodoDer);
+    }
+    
+    // Método para recorrido en orden (a través de las hojas)
+    public List<Integer> recorridoEnOrden() {
+        List<Integer> resultado = new ArrayList<>();
+        BPTreeNode nodoHoja = encontrarPrimeraHoja(raiz);
+        
+        while (nodoHoja != null) {
+            resultado.addAll(nodoHoja.claves);
+            nodoHoja = nodoHoja.siguiente;
+        }
+        
+        return resultado;
+    }
+    
+    // Encontrar la primera hoja
+    private BPTreeNode encontrarPrimeraHoja(BPTreeNode nodo) {
+        while (!nodo.esHoja) {
+            nodo = nodo.hijos.get(0);
+        }
+        return nodo;
+    }
+    
+    // Método para imprimir el árbol por niveles
+    public void imprimirPorNiveles() {
+        if (raiz == null || (raiz.claves.isEmpty() && raiz.hijos.isEmpty())) {
+            System.out.println("Arbol vacio");
+            return;
+        }
+        
+        Queue<BPTreeNode> cola = new LinkedList<>();
+        Queue<Integer> niveles = new LinkedList<>();
+        
+        cola.offer(raiz);
+        niveles.offer(0);
+        
+        int nivelActual = -1;
+        StringBuilder nivelStr = new StringBuilder();
+        
+        while (!cola.isEmpty()) {
+            BPTreeNode nodo = cola.poll();
+            int nivel = niveles.poll();
+            
+            if (nivel != nivelActual) {
+                if (nivelActual != -1) {
+                    System.out.println("Nivel " + nivelActual + ": " + nivelStr.toString().trim());
+                }
+                nivelActual = nivel;
+                nivelStr = new StringBuilder();
+            }
+            
+            // Agregar claves del nodo actual
+            nivelStr.append("(");
+            for (int i = 0; i < nodo.claves.size(); i++) {
+                if (i > 0) nivelStr.append(", ");
+                nivelStr.append(nodo.claves.get(i));
+            }
+            nivelStr.append(") ");
+            
+            // Agregar hijos a la cola si no es hoja
+            if (!nodo.esHoja) {
+                for (BPTreeNode hijo : nodo.hijos) {
+                    cola.offer(hijo);
+                    niveles.offer(nivel + 1);
+                }
+            }
+        }
+        
+        // Imprimir último nivel
+        if (nivelActual != -1) {
+            System.out.println("Nivel " + nivelActual + ": " + nivelStr.toString().trim());
+        }
+    }
+    
+    // Buscar una clave en el árbol
+    public boolean buscar(int clave) {
+        return buscarRecursivo(raiz, clave);
+    }
+    
+    private boolean buscarRecursivo(BPTreeNode nodo, int clave) {
+        if (nodo.esHoja) {
+            return nodo.claves.contains(clave);
+        }
+        
+        int pos = Collections.binarySearch(nodo.claves, clave);
+        if (pos >= 0) {
+            // La clave existe en este nodo interno, buscar en el hijo derecho
+            return buscarRecursivo(nodo.hijos.get(pos + 1), clave);
+        } else {
+            pos = -(pos + 1);
+            return buscarRecursivo(nodo.hijos.get(pos), clave);
+        }
+    }
+    
+    // Método principal para probar
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        
+        limpiarConsola();
+        System.out.println("");
+        System.out.println("                             ARBOL B+                                   ");
+        System.out.println("");
+        
+        System.out.print("\nIngrese el grado maximo del arbol B+: ");
+        int gradoMaximo = scanner.nextInt();
+        int orden = gradoMaximo / 2;
+        
+        BPlusTreeMejorado arbol = new BPlusTreeMejorado(orden);
+        
+        while (true) {
+            limpiarConsola();
+            System.out.println("");
+            System.out.println("                             ARBOL B+                                   ");
+            System.out.println("");
+            
+            System.out.println("\n1. Insertar numero");
+            System.out.println("2. Eliminar numero");
+            System.out.println("3. Buscar numero");
+            System.out.println("4. Mostrar arbol");
+            System.out.println("5. Mostrar recorrido en orden");
+            System.out.println("6. Limpiar consola");
+            System.out.println("7. Salir");
+            
+            System.out.print("\nSeleccione una opcion (1-7): ");
+            int opcion = scanner.nextInt();
+            
+            switch (opcion) {
+                case 1:
+                    System.out.print("Ingrese el numero a insertar: ");
+                    int numeroInsertar = scanner.nextInt();
+                    arbol.insertar(numeroInsertar);
+                    break;
+                    
+                case 2:
+                    System.out.print("Ingrese el numero a eliminar: ");
+                    int numeroEliminar = scanner.nextInt();
+                    boolean eliminado = arbol.eliminar(numeroEliminar);
+                    if (!eliminado) {
+                        System.out.println("Numero " + numeroEliminar + " no encontrado en el arbol.");
+                        System.out.print("Presione Enter para continuar...");
+                        try { System.in.read(); } catch (Exception e) {}
+                    }
+                    break;
+                    
+                case 3:
+                    System.out.print("Ingrese el numero a buscar: ");
+                    int numeroBuscar = scanner.nextInt();
+                    boolean encontrado = arbol.buscar(numeroBuscar);
+                    System.out.println(encontrado ? 
+                        "Numero " + numeroBuscar + " ENCONTRADO en el arbol." :
+                        "Numero " + numeroBuscar + " NO ENCONTRADO en el arbol.");
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 4:
+                    limpiarConsola();
+                    System.out.println("");
+                    System.out.println("                             ARBOL B+                                   ");
+                    System.out.println("");
+                    System.out.println();
+                    arbol.imprimirPorNiveles();
+                    System.out.print("\nPresione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 5:
+                    List<Integer> recorrido = arbol.recorridoEnOrden();
+                    System.out.println("Recorrido en orden: " + recorrido);
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 6:
+                    limpiarConsola();
+                    System.out.println("Consola limpiada");
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 7:
+                    limpiarConsola();
+                    System.out.println("");
+                    System.out.println("                          Hasta luego!                                  ");
+                    System.out.println("");
+                    scanner.close();
+                    return;
+                    
+                default:
+                    System.out.println("Opcion invalida. Intente de nuevo.");
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+            }
+        }
+    }
+}
+// lo unico que no se logro al 100% fue que se pudiera borrar un nodo central que tenga mas de 2 guias

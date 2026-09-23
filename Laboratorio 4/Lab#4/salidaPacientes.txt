@@ -1,0 +1,3 @@
+Atendiendo: Nombre: Luis, Prioridad: 3
+Atendiendo: Nombre: Sofía, Prioridad: 2
+Atendiendo: Nombre: Ana, Prioridad: 1

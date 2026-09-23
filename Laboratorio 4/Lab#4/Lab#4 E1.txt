@@ -1,0 +1,206 @@
+import java.io.*;
+import java.util.*; 
+
+public class MedianaEnLinea {
+    // Max-heap para la mitad menor de los números (números más pequeños)
+    private PriorityQueue<Integer> maxHeap;
+    
+    // Min-heap para la mitad mayor de los números (números más grandes)  
+    private PriorityQueue<Integer> minHeap;
+    
+    private PrintWriter writer;
+    
+    public MedianaEnLinea() throws IOException {
+        // Max-heap: usamos Collections.reverseOrder() para simular max-heap
+        maxHeap = new PriorityQueue<>(Collections.reverseOrder());
+        
+        // Min-heap: comportamiento por defecto de PriorityQueue
+        minHeap = new PriorityQueue<>();
+        
+        // Preparar archivo de salida
+        try {
+            writer = new PrintWriter(new FileWriter("salida.txt"), true);
+        } catch (IOException e) {
+            System.err.println(" Error al crear el archivo de salida: " + e.getMessage());
+            throw e;
+        }
+    }
+    
+    /**
+     * Inserta un nuevo número y mantiene el balance entre los heaps
+     */
+    public void insertarNumero(int numero) {
+        // Paso 1: Decidir en qué heap insertar el número
+        if (maxHeap.isEmpty() || numero <= maxHeap.peek()) {
+            maxHeap.offer(numero);
+        } else {
+            minHeap.offer(numero);
+        }
+        
+        // Paso 2: Balancear los heaps
+        balancearHeaps();
+        
+        // Paso 3: Escribir resultados
+        escribirEstado(numero);
+    }
+    
+    /**
+     * Mantiene la propiedad de que los heaps difieran máximo en 1 elemento
+     */
+    private void balancearHeaps() {
+        // Si maxHeap tiene más de 1 elemento adicional que minHeap
+        if (maxHeap.size() > minHeap.size() + 1) {
+            minHeap.offer(maxHeap.poll());
+        }
+        // Si minHeap tiene más de 1 elemento adicional que maxHeap  
+        else if (minHeap.size() > maxHeap.size() + 1) {
+            maxHeap.offer(minHeap.poll());
+        }
+    }
+    
+    /**
+     * Calcula la mediana actual basada en las cimas de los heaps
+     */
+    public double calcularMediana() {
+        if (maxHeap.size() == minHeap.size()) {
+            // Número par de elementos: promedio de las dos cimas
+            return (maxHeap.peek() + minHeap.peek()) / 2.0;
+        } else if (maxHeap.size() > minHeap.size()) {
+            // maxHeap tiene un elemento más: su cima es la mediana
+            return maxHeap.peek();
+        } else {
+            // minHeap tiene un elemento más: su cima es la mediana
+            return minHeap.peek();
+        }
+    }
+    
+    /**
+     * Escribe el estado actual en el archivo de salida
+     */
+    private void escribirEstado(int numero) {
+        writer.println("Numero insertado: " + numero);
+        writer.println("maxHeap: " + convertirHeapALista(maxHeap));
+        writer.println("minHeap: " + convertirHeapALista(minHeap));
+        writer.println("Mediana actual: " + calcularMediana());
+        writer.println();
+        writer.flush(); // Asegurar que se escriba inmediatamente
+    }
+    
+    /**
+     * Convierte un PriorityQueue a una lista ordenada para visualización
+     */
+    private List<Integer> convertirHeapALista(PriorityQueue<Integer> heap) {
+        List<Integer> lista = new ArrayList<>(heap);
+        if (heap == maxHeap) {
+            // Para maxHeap, ordenamos en orden descendente
+            lista.sort(Collections.reverseOrder());
+        } else {
+            // Para minHeap, ordenamos en orden ascendente
+            Collections.sort(lista);
+        }
+        return lista;
+    }
+    
+    /**
+     * Procesa todos los números del archivo de entrada
+     */
+    public void procesarArchivo() {
+        try (Scanner scanner = new Scanner(new File("entrada.txt"))) {
+            while (scanner.hasNextInt()) {
+                int numero = scanner.nextInt();
+                insertarNumero(numero);
+            }
+        } catch (FileNotFoundException e) {
+            System.err.println("Error: No se encontro el archivo entrada.txt");
+            e.printStackTrace();
+        }
+    }
+    
+    /**
+     * Cierra los recursos utilizados
+     */
+    public void cerrar() {
+        if (writer != null) {
+            writer.close();
+        }
+    }
+    
+    /**
+     * Método principal
+     */
+    public static void main(String[] args) {
+        MedianaEnLinea mediana = null;
+        
+        try {
+            // Crear el archivo de entrada con datos del usuario
+            crearArchivoEntrada();
+            
+            // Procesar la mediana en línea
+            mediana = new MedianaEnLinea();
+            mediana.procesarArchivo();
+            
+            System.out.println("\n Procesamiento completado.");
+            System.out.println(" Revisa el archivo 'salida.txt' para ver los resultados.");
+            
+        } catch (IOException e) {
+            System.err.println(" Error de entrada/salida: " + e.getMessage());
+            e.printStackTrace();
+        } catch (Exception e) {
+            System.err.println(" Error durante la ejecucion: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            // Asegurar que se cierren los recursos
+            if (mediana != null) {
+                mediana.cerrar();
+            }
+        }
+    }
+    
+    /**
+     * Permite al usuario ingresar los datos interactivamente
+     */
+    private static void crearArchivoEntrada() throws IOException {
+        Scanner scanner = new Scanner(System.in);
+        
+        System.out.println("=== CREACION DEL ARCHIVO DE ENTRADA ===");
+        System.out.println(" Ingresa los numeros para calcular la mediana en linea:");
+        System.out.println(" Presiona Enter despues de cada numero");
+        System.out.println(" Escribe 'fin' o 'exit' para terminar\n");
+        
+        try (PrintWriter writer = new PrintWriter("entrada.txt")) {
+            String input;
+            int contador = 0;
+            
+            System.out.print("Numero " + (contador + 1) + ": ");
+            
+            while (!(input = scanner.nextLine().trim()).equalsIgnoreCase("fin") && 
+                   !input.equalsIgnoreCase("exit")) {
+                
+                try {
+                    // Intentar convertir la entrada a número
+                    int numero = Integer.parseInt(input);
+                    writer.println(numero);
+                    contador++;
+                    System.out.println(" Numero " + numero + " agregado");
+                    System.out.print("Numero " + (contador + 1) + ": ");
+                    
+                } catch (NumberFormatException e) {
+                    System.out.println(" Error: '" + input + "' no es un numero valido.");
+                    System.out.println(" Ingresa un numero entero o 'fin' para terminar");
+                    System.out.print("Numero " + (contador + 1) + ": ");
+                }
+            }
+            
+            if (contador == 0) {
+                System.out.println("️  No se ingresaron números. Creando archivo con datos de ejemplo...");
+                writer.println("5");
+                writer.println("15");
+                writer.println("1");
+                writer.println("3");
+                System.out.println(" Archivo 'entrada.txt' creado con datos de ejemplo: [5, 15, 1, 3]");
+            } else {
+                System.out.println("\n Archivo 'entrada.txt' creado exitosamente con " + contador + " numeros.");
+            }
+        }
+    }
+}

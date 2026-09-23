@@ -1,0 +1,941 @@
+import java.util.*;
+import java.io.*;
+import java.nio.file.*;
+
+// Clase para representar un nodo del Árbol B+ con soporte para serialización JSON
+class BPTreeNode implements Serializable {
+    List<Integer> claves;           // Lista de claves del nodo
+    List<BPTreeNode> hijos;         // Lista de hijos (solo para nodos internos)
+    boolean esHoja;                 // Indica si es un nodo hoja
+    BPTreeNode siguiente;           // Puntero al siguiente nodo hoja
+    BPTreeNode anterior;            // Puntero al anterior nodo hoja
+    BPTreeNode padre;               // Puntero al nodo padre
+    
+    // ID único para facilitar la serialización (se asigna durante el guardado)
+    transient int nodeId = -1;
+    
+    public BPTreeNode(boolean esHoja) {
+        this.esHoja = esHoja;
+        this.claves = new ArrayList<>();
+        this.hijos = new ArrayList<>();
+        this.siguiente = null;
+        this.anterior = null;
+        this.padre = null;
+    }
+}
+
+// Clase para el resultado de división de nodo
+class ResultadoSplit {
+    int claveMediana;
+    BPTreeNode nodoIzquierdo;
+    BPTreeNode nodoDerecho;
+    
+    public ResultadoSplit(int claveMediana, BPTreeNode izq, BPTreeNode der) {
+        this.claveMediana = claveMediana;
+        this.nodoIzquierdo = izq;
+        this.nodoDerecho = der;
+    }
+}
+
+// Clase para representar un nodo en formato JSON
+class NodeJSON {
+    public int nodeId;
+    public boolean esHoja;
+    public List<Integer> claves;
+    public List<Integer> hijosIds;  // IDs de los nodos hijos
+    public Integer siguienteId;     // ID del siguiente nodo hoja
+    public Integer anteriorId;      // ID del anterior nodo hoja
+    
+    public NodeJSON() {
+        this.claves = new ArrayList<>();
+        this.hijosIds = new ArrayList<>();
+    }
+}
+
+// Clase para representar el árbol completo en formato JSON
+class TreeJSON {
+    public int orden;
+    public int raizId;
+    public List<NodeJSON> nodos;
+    
+    public TreeJSON() {
+        this.nodos = new ArrayList<>();
+    }
+}
+
+// Clase principal del Árbol B+ con funcionalidad de guardado/carga
+public class BPlusTreeMejorado {
+    private BPTreeNode raiz;
+    private int d; // Orden mínimo
+    
+    public BPlusTreeMejorado(int orden) {
+        this.d = orden;
+        this.raiz = new BPTreeNode(true); // La raíz inicial es una hoja
+    }
+    
+    // ===================== MÉTODOS DE SERIALIZACIÓN JSON =====================
+    
+    /**
+     * Guarda el árbol B+ en un archivo JSON
+     * @param filename Nombre del archivo donde guardar
+     */
+    public void saveToFile(String filename) {
+        try {
+            TreeJSON treeJson = serializeToJSON();
+            String jsonString = convertToJSONString(treeJson);
+            
+            // Crear directorio si no existe
+            Path path = Paths.get(filename);
+            if (path.getParent() != null) {
+                Files.createDirectories(path.getParent());
+            }
+            
+            // Escribir archivo
+            Files.write(path, jsonString.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+            
+            System.out.println(" Árbol guardado exitosamente en: " + filename);
+        } catch (IOException e) {
+            System.err.println("Error al guardar el árbol: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * Carga el árbol B+ desde un archivo JSON
+     * @param filename Nombre del archivo a cargar
+     * @return true si se cargó exitosamente, false en caso contrario
+     */
+    public boolean loadFromFile(String filename) {
+        try {
+            if (!Files.exists(Paths.get(filename))) {
+                System.err.println(" El archivo " + filename + " no existe.");
+                return false;
+            }
+            
+            String jsonString = new String(Files.readAllBytes(Paths.get(filename)));
+            TreeJSON treeJson = parseJSONString(jsonString);
+            deserializeFromJSON(treeJson);
+            
+            System.out.println(" Árbol cargado exitosamente desde: " + filename);
+            return true;
+        } catch (Exception e) {
+            System.err.println(" Error al cargar el árbol: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * Serializa el árbol a formato JSON interno
+     */
+    private TreeJSON serializeToJSON() {
+        TreeJSON treeJson = new TreeJSON();
+        treeJson.orden = this.d;
+        
+        // Mapear todos los nodos y asignar IDs
+        Map<BPTreeNode, Integer> nodeToId = new HashMap<>();
+        List<BPTreeNode> allNodes = new ArrayList<>();
+        
+        // Recopilar todos los nodos usando recorrido por niveles
+        Queue<BPTreeNode> queue = new LinkedList<>();
+        queue.offer(raiz);
+        int currentId = 0;
+        
+        while (!queue.isEmpty()) {
+            BPTreeNode node = queue.poll();
+            if (!nodeToId.containsKey(node)) {
+                nodeToId.put(node, currentId);
+                node.nodeId = currentId++;
+                allNodes.add(node);
+                
+                if (!node.esHoja) {
+                    for (BPTreeNode hijo : node.hijos) {
+                        if (!nodeToId.containsKey(hijo)) {
+                            queue.offer(hijo);
+                        }
+                    }
+                }
+            }
+        }
+        
+        treeJson.raizId = nodeToId.get(raiz);
+        
+        // Convertir cada nodo a formato JSON
+        for (BPTreeNode node : allNodes) {
+            NodeJSON nodeJson = new NodeJSON();
+            nodeJson.nodeId = node.nodeId;
+            nodeJson.esHoja = node.esHoja;
+            nodeJson.claves = new ArrayList<>(node.claves);
+            
+            // Agregar IDs de hijos
+            if (!node.esHoja) {
+                for (BPTreeNode hijo : node.hijos) {
+                    nodeJson.hijosIds.add(nodeToId.get(hijo));
+                }
+            }
+            
+            // Agregar enlaces de hojas
+            if (node.esHoja) {
+                nodeJson.siguienteId = (node.siguiente != null) ? nodeToId.get(node.siguiente) : null;
+                nodeJson.anteriorId = (node.anterior != null) ? nodeToId.get(node.anterior) : null;
+            }
+            
+            treeJson.nodos.add(nodeJson);
+        }
+        
+        return treeJson;
+    }
+    
+    /**
+     * Convierte el objeto TreeJSON a string JSON formateado
+     */
+    private String convertToJSONString(TreeJSON treeJson) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("{\n");
+        sb.append("  \"orden\": ").append(treeJson.orden).append(",\n");
+        sb.append("  \"raizId\": ").append(treeJson.raizId).append(",\n");
+        sb.append("  \"nodos\": [\n");
+        
+        for (int i = 0; i < treeJson.nodos.size(); i++) {
+            NodeJSON node = treeJson.nodos.get(i);
+            sb.append("    {\n");
+            sb.append("      \"nodeId\": ").append(node.nodeId).append(",\n");
+            sb.append("      \"esHoja\": ").append(node.esHoja).append(",\n");
+            sb.append("      \"claves\": ").append(listToJSONArray(node.claves)).append(",\n");
+            sb.append("      \"hijosIds\": ").append(listToJSONArray(node.hijosIds));
+            
+            if (node.esHoja) {
+                sb.append(",\n");
+                sb.append("      \"siguienteId\": ").append(node.siguienteId).append(",\n");
+                sb.append("      \"anteriorId\": ").append(node.anteriorId);
+            }
+            
+            sb.append("\n    }");
+            if (i < treeJson.nodos.size() - 1) sb.append(",");
+            sb.append("\n");
+        }
+        
+        sb.append("  ]\n");
+        sb.append("}");
+        
+        return sb.toString();
+    }
+    
+    /**
+     * Convierte una lista a formato JSON array
+     */
+    private String listToJSONArray(List<Integer> list) {
+        if (list == null || list.isEmpty()) {
+            return "[]";
+        }
+        
+        StringBuilder sb = new StringBuilder();
+        sb.append("[");
+        for (int i = 0; i < list.size(); i++) {
+            sb.append(list.get(i));
+            if (i < list.size() - 1) sb.append(", ");
+        }
+        sb.append("]");
+        return sb.toString();
+    }
+    
+    /**
+     * Parser simple de JSON a TreeJSON
+     */
+    private TreeJSON parseJSONString(String jsonString) {
+        TreeJSON treeJson = new TreeJSON();
+        
+        // Parser simple - en un entorno real se usaría una librería como Gson
+        jsonString = jsonString.replaceAll("\\s+", " ").trim();
+        
+        // Extraer orden
+        String ordenPattern = "\"orden\":\\s*(\\d+)";
+        java.util.regex.Pattern p = java.util.regex.Pattern.compile(ordenPattern);
+        java.util.regex.Matcher m = p.matcher(jsonString);
+        if (m.find()) {
+            treeJson.orden = Integer.parseInt(m.group(1));
+        }
+        
+        // Extraer raizId
+        String raizPattern = "\"raizId\":\\s*(\\d+)";
+        p = java.util.regex.Pattern.compile(raizPattern);
+        m = p.matcher(jsonString);
+        if (m.find()) {
+            treeJson.raizId = Integer.parseInt(m.group(1));
+        }
+        
+        // Extraer nodos (implementación simplificada)
+        String nodosSection = extractNodesSection(jsonString);
+        treeJson.nodos = parseNodes(nodosSection);
+        
+        return treeJson;
+    }
+    
+    /**
+     * Extrae la sección de nodos del JSON
+     */
+    private String extractNodesSection(String jsonString) {
+        int start = jsonString.indexOf("\"nodos\": [") + "\"nodos\": [".length();
+        int end = jsonString.lastIndexOf("]");
+        return jsonString.substring(start, end);
+    }
+    
+    /**
+     * Parsea los nodos del JSON (implementación simplificada)
+     */
+    private List<NodeJSON> parseNodes(String nodesSection) {
+        List<NodeJSON> nodes = new ArrayList<>();
+        
+        // Split por nodos (buscar patrones de { ... })
+        String[] nodeStrings = nodesSection.split("\\},\\s*\\{");
+        
+        for (String nodeStr : nodeStrings) {
+            nodeStr = nodeStr.trim();
+            if (nodeStr.startsWith("{")) nodeStr = nodeStr.substring(1);
+            if (nodeStr.endsWith("}")) nodeStr = nodeStr.substring(0, nodeStr.length() - 1);
+            
+            NodeJSON node = parseNode(nodeStr);
+            if (node != null) {
+                nodes.add(node);
+            }
+        }
+        
+        return nodes;
+    }
+    
+    /**
+     * Parsea un nodo individual del JSON
+     */
+    private NodeJSON parseNode(String nodeStr) {
+        NodeJSON node = new NodeJSON();
+        
+        try {
+            // Extraer nodeId
+            java.util.regex.Pattern p = java.util.regex.Pattern.compile("\"nodeId\":\\s*(\\d+)");
+            java.util.regex.Matcher m = p.matcher(nodeStr);
+            if (m.find()) node.nodeId = Integer.parseInt(m.group(1));
+            
+            // Extraer esHoja
+            p = java.util.regex.Pattern.compile("\"esHoja\":\\s*(true|false)");
+            m = p.matcher(nodeStr);
+            if (m.find()) node.esHoja = Boolean.parseBoolean(m.group(1));
+            
+            // Extraer claves
+            p = java.util.regex.Pattern.compile("\"claves\":\\s*\\[([^\\]]*)\\]");
+            m = p.matcher(nodeStr);
+            if (m.find()) {
+                String clavesStr = m.group(1);
+                if (!clavesStr.trim().isEmpty()) {
+                    String[] claves = clavesStr.split(",");
+                    for (String clave : claves) {
+                        node.claves.add(Integer.parseInt(clave.trim()));
+                    }
+                }
+            }
+            
+            // Extraer hijosIds
+            p = java.util.regex.Pattern.compile("\"hijosIds\":\\s*\\[([^\\]]*)\\]");
+            m = p.matcher(nodeStr);
+            if (m.find()) {
+                String hijosStr = m.group(1);
+                if (!hijosStr.trim().isEmpty()) {
+                    String[] hijos = hijosStr.split(",");
+                    for (String hijo : hijos) {
+                        node.hijosIds.add(Integer.parseInt(hijo.trim()));
+                    }
+                }
+            }
+            
+            // Extraer siguienteId (solo para hojas)
+            if (node.esHoja) {
+                p = java.util.regex.Pattern.compile("\"siguienteId\":\\s*(\\d+|null)");
+                m = p.matcher(nodeStr);
+                if (m.find()) {
+                    String siguienteStr = m.group(1);
+                    node.siguienteId = "null".equals(siguienteStr) ? null : Integer.parseInt(siguienteStr);
+                }
+                
+                // Extraer anteriorId
+                p = java.util.regex.Pattern.compile("\"anteriorId\":\\s*(\\d+|null)");
+                m = p.matcher(nodeStr);
+                if (m.find()) {
+                    String anteriorStr = m.group(1);
+                    node.anteriorId = "null".equals(anteriorStr) ? null : Integer.parseInt(anteriorStr);
+                }
+            }
+            
+            return node;
+        } catch (Exception e) {
+            System.err.println("Error parseando nodo: " + e.getMessage());
+            return null;
+        }
+    }
+    
+    /**
+     * Deserializa desde formato JSON interno al árbol
+     */
+    private void deserializeFromJSON(TreeJSON treeJson) {
+        this.d = treeJson.orden;
+        
+        // Crear mapa de ID a nodo
+        Map<Integer, BPTreeNode> idToNode = new HashMap<>();
+        
+        // Crear todos los nodos primero
+        for (NodeJSON nodeJson : treeJson.nodos) {
+            BPTreeNode node = new BPTreeNode(nodeJson.esHoja);
+            node.nodeId = nodeJson.nodeId;
+            node.claves = new ArrayList<>(nodeJson.claves);
+            idToNode.put(nodeJson.nodeId, node);
+        }
+        
+        // Establecer relaciones padre-hijo y enlaces de hojas
+        for (NodeJSON nodeJson : treeJson.nodos) {
+            BPTreeNode node = idToNode.get(nodeJson.nodeId);
+            
+            // Establecer hijos
+            if (!nodeJson.esHoja) {
+                for (Integer hijoId : nodeJson.hijosIds) {
+                    BPTreeNode hijo = idToNode.get(hijoId);
+                    node.hijos.add(hijo);
+                    hijo.padre = node;
+                }
+            }
+            
+            // Establecer enlaces de hojas
+            if (nodeJson.esHoja) {
+                if (nodeJson.siguienteId != null) {
+                    node.siguiente = idToNode.get(nodeJson.siguienteId);
+                }
+                if (nodeJson.anteriorId != null) {
+                    node.anterior = idToNode.get(nodeJson.anteriorId);
+                }
+            }
+        }
+        
+        // Establecer raíz
+        this.raiz = idToNode.get(treeJson.raizId);
+    }
+    
+    // ===================== MÉTODOS ORIGINALES (sin modificaciones) =====================
+    
+    // Método para limpiar la consola
+    public static void limpiarConsola() {
+        try {
+            // Para Windows
+            if (System.getProperty("os.name").contains("Windows")) {
+                new ProcessBuilder("cmd", "/c", "cls").inheritIO().start().waitFor();
+            } else {
+                // Para Linux/Mac
+                System.out.print("\033[2J\033[H");
+                System.out.flush();
+            }
+        } catch (Exception e) {
+            // Si no funciona, simplemente imprimir líneas vacías
+            for (int i = 0; i < 50; i++) {
+                System.out.println();
+            }
+        }
+    }
+    
+    // Método público para insertar
+    public void insertar(int clave) {
+        ResultadoSplit resultado = insertarRecursivo(raiz, clave);
+        
+        // Si la raíz se dividió, crear nueva raíz
+        if (resultado != null) {
+            BPTreeNode nuevaRaiz = new BPTreeNode(false);
+            nuevaRaiz.claves.add(resultado.claveMediana);
+            nuevaRaiz.hijos.add(resultado.nodoIzquierdo);
+            nuevaRaiz.hijos.add(resultado.nodoDerecho);
+            resultado.nodoIzquierdo.padre = nuevaRaiz;
+            resultado.nodoDerecho.padre = nuevaRaiz;
+            raiz = nuevaRaiz;
+        }
+        
+        // Mostrar árbol automáticamente después de insertar
+        limpiarConsola();
+        System.out.println("");
+        System.out.println("                        ARBOL B+ ACTUALIZADO                             ");
+        System.out.println("");
+        imprimirPorNiveles();
+        System.out.println("\nPresione Enter para continuar...");
+        try { System.in.read(); } catch (Exception e) {}
+    }
+    
+    // Método recursivo para insertar
+    private ResultadoSplit insertarRecursivo(BPTreeNode nodoActual, int clave) {
+        if (nodoActual.esHoja) {
+            // Insertar en nodo hoja manteniendo orden
+            int pos = Collections.binarySearch(nodoActual.claves, clave);
+            if (pos < 0) pos = -(pos + 1);
+            else return null; // Clave ya existe
+            
+            nodoActual.claves.add(pos, clave);
+            
+            // Verificar si necesita división (más restrictivo para obtener más niveles)
+            if (nodoActual.claves.size() >= 2 * d + 1) {
+                return dividirNodo(nodoActual);
+            }
+        } else {
+            // Encontrar hijo correcto para insertar
+            int pos = Collections.binarySearch(nodoActual.claves, clave);
+            if (pos < 0) pos = -(pos + 1);
+            
+            ResultadoSplit resultadoHijo = insertarRecursivo(nodoActual.hijos.get(pos), clave);
+            
+            if (resultadoHijo != null) {
+                // Insertar clave mediana en nodo actual
+                nodoActual.claves.add(pos, resultadoHijo.claveMediana);
+                nodoActual.hijos.set(pos, resultadoHijo.nodoIzquierdo);
+                nodoActual.hijos.add(pos + 1, resultadoHijo.nodoDerecho);
+                resultadoHijo.nodoIzquierdo.padre = nodoActual;
+                resultadoHijo.nodoDerecho.padre = nodoActual;
+                
+                // Verificar si necesita división (más restrictivo para obtener más niveles)
+                if (nodoActual.claves.size() >= 2 * d + 1) {
+                    return dividirNodo(nodoActual);
+                }
+            }
+        }
+        return null;
+    }
+    
+    // Método para dividir un nodo
+    private ResultadoSplit dividirNodo(BPTreeNode nodoLleno) {
+        int mitad = nodoLleno.claves.size() / 2;
+        int claveMediana = nodoLleno.claves.get(mitad);
+        
+        if (nodoLleno.esHoja) {
+            // División de nodo hoja - la clave mediana se COPIA al nodo derecho
+            BPTreeNode nodoIzquierdo = new BPTreeNode(true);
+            BPTreeNode nodoDerecho = new BPTreeNode(true);
+            
+            // Distribuir claves - división balanceada
+            for (int i = 0; i < mitad; i++) {
+                nodoIzquierdo.claves.add(nodoLleno.claves.get(i));
+            }
+            for (int i = mitad; i < nodoLleno.claves.size(); i++) {
+                nodoDerecho.claves.add(nodoLleno.claves.get(i));
+            }
+            
+            // Actualizar enlaces de nodos hoja
+            nodoIzquierdo.siguiente = nodoDerecho;
+            nodoDerecho.anterior = nodoIzquierdo;
+            
+            if (nodoLleno.anterior != null) {
+                nodoLleno.anterior.siguiente = nodoIzquierdo;
+                nodoIzquierdo.anterior = nodoLleno.anterior;
+            }
+            if (nodoLleno.siguiente != null) {
+                nodoLleno.siguiente.anterior = nodoDerecho;
+                nodoDerecho.siguiente = nodoLleno.siguiente;
+            }
+            
+            return new ResultadoSplit(claveMediana, nodoIzquierdo, nodoDerecho);
+        } else {
+            // División de nodo interno - la clave mediana se MUEVE hacia arriba
+            BPTreeNode nodoIzquierdo = new BPTreeNode(false);
+            BPTreeNode nodoDerecho = new BPTreeNode(false);
+            
+            // Distribuir claves (sin incluir la mediana)
+            for (int i = 0; i < mitad; i++) {
+                nodoIzquierdo.claves.add(nodoLleno.claves.get(i));
+            }
+            for (int i = mitad + 1; i < nodoLleno.claves.size(); i++) {
+                nodoDerecho.claves.add(nodoLleno.claves.get(i));
+            }
+            
+            // Distribuir hijos
+            for (int i = 0; i <= mitad; i++) {
+                BPTreeNode hijo = nodoLleno.hijos.get(i);
+                nodoIzquierdo.hijos.add(hijo);
+                hijo.padre = nodoIzquierdo;
+            }
+            for (int i = mitad + 1; i < nodoLleno.hijos.size(); i++) {
+                BPTreeNode hijo = nodoLleno.hijos.get(i);
+                nodoDerecho.hijos.add(hijo);
+                hijo.padre = nodoDerecho;
+            }
+            
+            return new ResultadoSplit(claveMediana, nodoIzquierdo, nodoDerecho);
+        }
+    }
+    
+    // Método público para eliminar
+    public boolean eliminar(int clave) {
+        boolean eliminado = eliminarRecursivo(raiz, clave);
+        
+        // Si la raíz se quedó vacía y no es hoja
+        if (!raiz.esHoja && raiz.claves.isEmpty()) {
+            if (!raiz.hijos.isEmpty()) {
+                raiz = raiz.hijos.get(0);
+                raiz.padre = null;
+            }
+        }
+        
+        if (eliminado) {
+            // Mostrar árbol automáticamente después de eliminar
+            limpiarConsola();
+            System.out.println("");
+            System.out.println("                        ARBOL B+ ACTUALIZADO                             ");
+            System.out.println("");
+            imprimirPorNiveles();
+            System.out.println("\nPresione Enter para continuar...");
+            try { System.in.read(); } catch (Exception e) {}
+        }
+        
+        return eliminado;
+    }
+    
+    // Método recursivo para eliminar
+    private boolean eliminarRecursivo(BPTreeNode nodo, int clave) {
+        if (nodo.esHoja) {
+            int pos = nodo.claves.indexOf(clave);
+            if (pos == -1) return false;
+            
+            nodo.claves.remove(pos);
+            
+            // Si es la raíz, no necesita rebalanceo
+            if (nodo == raiz) return true;
+            
+            // Verificar si necesita rebalanceo
+            if (nodo.claves.size() < d) {
+                rebalancearNodo(nodo);
+            }
+            return true;
+        } else {
+            // Encontrar hijo correcto
+            int pos = Collections.binarySearch(nodo.claves, clave);
+            if (pos < 0) pos = -(pos + 1);
+            
+            boolean eliminado = eliminarRecursivo(nodo.hijos.get(pos), clave);
+            
+            if (eliminado && nodo != raiz && nodo.claves.size() < d) {
+                rebalancearNodo(nodo);
+            }
+            
+            return eliminado;
+        }
+    }
+    
+    // Método para rebalancear un nodo después de eliminación
+    private void rebalancearNodo(BPTreeNode nodo) {
+        BPTreeNode padre = nodo.padre;
+        if (padre == null) return;
+        
+        int posEnPadre = padre.hijos.indexOf(nodo);
+        BPTreeNode hermanoIzq = (posEnPadre > 0) ? padre.hijos.get(posEnPadre - 1) : null;
+        BPTreeNode hermanoDer = (posEnPadre < padre.hijos.size() - 1) ? padre.hijos.get(posEnPadre + 1) : null;
+        
+        // Intentar redistribución con hermano izquierdo
+        if (hermanoIzq != null && hermanoIzq.claves.size() > d) {
+            redistribuirDeIzquierda(nodo, hermanoIzq, padre, posEnPadre - 1);
+            return;
+        }
+        
+        // Intentar redistribución con hermano derecho
+        if (hermanoDer != null && hermanoDer.claves.size() > d) {
+            redistribuirDeDerecha(nodo, hermanoDer, padre, posEnPadre);
+            return;
+        }
+        
+        // Fusionar nodos
+        if (hermanoIzq != null) {
+            fusionarNodos(hermanoIzq, nodo, padre, posEnPadre - 1);
+        } else if (hermanoDer != null) {
+            fusionarNodos(nodo, hermanoDer, padre, posEnPadre);
+        }
+    }
+    
+    // Redistribuir desde el hermano izquierdo
+    private void redistribuirDeIzquierda(BPTreeNode nodo, BPTreeNode hermanoIzq, BPTreeNode padre, int posClaveEnPadre) {
+        if (nodo.esHoja) {
+            // Mover la última clave del hermano izquierdo al nodo actual
+            int claveMovida = hermanoIzq.claves.remove(hermanoIzq.claves.size() - 1);
+            nodo.claves.add(0, claveMovida);
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, nodo.claves.get(0));
+        } else {
+            // Nodo interno
+            int claveDelPadre = padre.claves.get(posClaveEnPadre);
+            nodo.claves.add(0, claveDelPadre);
+            
+            // Mover hijo del hermano
+            BPTreeNode hijoMovido = hermanoIzq.hijos.remove(hermanoIzq.hijos.size() - 1);
+            nodo.hijos.add(0, hijoMovido);
+            hijoMovido.padre = nodo;
+            
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, hermanoIzq.claves.remove(hermanoIzq.claves.size() - 1));
+        }
+    }
+    
+    // Redistribuir desde el hermano derecho
+    private void redistribuirDeDerecha(BPTreeNode nodo, BPTreeNode hermanoDer, BPTreeNode padre, int posClaveEnPadre) {
+        if (nodo.esHoja) {
+            // Mover la primera clave del hermano derecho al nodo actual
+            int claveMovida = hermanoDer.claves.remove(0);
+            nodo.claves.add(claveMovida);
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, hermanoDer.claves.get(0));
+        } else {
+            // Nodo interno
+            int claveDelPadre = padre.claves.get(posClaveEnPadre);
+            nodo.claves.add(claveDelPadre);
+            
+            // Mover hijo del hermano
+            BPTreeNode hijoMovido = hermanoDer.hijos.remove(0);
+            nodo.hijos.add(hijoMovido);
+            hijoMovido.padre = nodo;
+            
+            // Actualizar clave en el padre
+            padre.claves.set(posClaveEnPadre, hermanoDer.claves.remove(0));
+        }
+    }
+    
+    // Fusionar dos nodos
+    private void fusionarNodos(BPTreeNode nodoIzq, BPTreeNode nodoDer, BPTreeNode padre, int posClaveEnPadre) {
+        if (nodoIzq.esHoja) {
+            // Fusionar nodos hoja
+            nodoIzq.claves.addAll(nodoDer.claves);
+            
+            // Actualizar enlaces
+            nodoIzq.siguiente = nodoDer.siguiente;
+            if (nodoDer.siguiente != null) {
+                nodoDer.siguiente.anterior = nodoIzq;
+            }
+        } else {
+            // Fusionar nodos internos
+            nodoIzq.claves.add(padre.claves.get(posClaveEnPadre));
+            nodoIzq.claves.addAll(nodoDer.claves);
+            
+            // Mover hijos
+            for (BPTreeNode hijo : nodoDer.hijos) {
+                nodoIzq.hijos.add(hijo);
+                hijo.padre = nodoIzq;
+            }
+        }
+        
+        // Eliminar clave y hijo del padre
+        padre.claves.remove(posClaveEnPadre);
+        padre.hijos.remove(nodoDer);
+    }
+    
+    // Método para recorrido en orden (a través de las hojas)
+    public List<Integer> recorridoEnOrden() {
+        List<Integer> resultado = new ArrayList<>();
+        BPTreeNode nodoHoja = encontrarPrimeraHoja(raiz);
+        
+        while (nodoHoja != null) {
+            resultado.addAll(nodoHoja.claves);
+            nodoHoja = nodoHoja.siguiente;
+        }
+        
+        return resultado;
+    }
+    
+    // Encontrar la primera hoja
+    private BPTreeNode encontrarPrimeraHoja(BPTreeNode nodo) {
+        while (!nodo.esHoja) {
+            nodo = nodo.hijos.get(0);
+        }
+        return nodo;
+    }
+    
+    // Método para imprimir el árbol por niveles
+    public void imprimirPorNiveles() {
+        if (raiz == null || (raiz.claves.isEmpty() && raiz.hijos.isEmpty())) {
+            System.out.println("Arbol vacio");
+            return;
+        }
+        
+        Queue<BPTreeNode> cola = new LinkedList<>();
+        Queue<Integer> niveles = new LinkedList<>();
+        
+        cola.offer(raiz);
+        niveles.offer(0);
+        
+        int nivelActual = -1;
+        StringBuilder nivelStr = new StringBuilder();
+        
+        while (!cola.isEmpty()) {
+            BPTreeNode nodo = cola.poll();
+            int nivel = niveles.poll();
+            
+            if (nivel != nivelActual) {
+                if (nivelActual != -1) {
+                    System.out.println("Nivel " + nivelActual + ": " + nivelStr.toString().trim());
+                }
+                nivelActual = nivel;
+                nivelStr = new StringBuilder();
+            }
+            
+            // Agregar claves del nodo actual
+            nivelStr.append("(");
+            for (int i = 0; i < nodo.claves.size(); i++) {
+                if (i > 0) nivelStr.append(", ");
+                nivelStr.append(nodo.claves.get(i));
+            }
+            nivelStr.append(") ");
+            
+            // Agregar hijos a la cola si no es hoja
+            if (!nodo.esHoja) {
+                for (BPTreeNode hijo : nodo.hijos) {
+                    cola.offer(hijo);
+                    niveles.offer(nivel + 1);
+                }
+            }
+        }
+        
+        // Imprimir último nivel
+        if (nivelActual != -1) {
+            System.out.println("Nivel " + nivelActual + ": " + nivelStr.toString().trim());
+        }
+    }
+    
+    // Buscar una clave en el árbol
+    public boolean buscar(int clave) {
+        return buscarRecursivo(raiz, clave);
+    }
+    
+    private boolean buscarRecursivo(BPTreeNode nodo, int clave) {
+        if (nodo.esHoja) {
+            return nodo.claves.contains(clave);
+        }
+        
+        int pos = Collections.binarySearch(nodo.claves, clave);
+        if (pos >= 0) {
+            // La clave existe en este nodo interno, buscar en el hijo derecho
+            return buscarRecursivo(nodo.hijos.get(pos + 1), clave);
+        } else {
+            pos = -(pos + 1);
+            return buscarRecursivo(nodo.hijos.get(pos), clave);
+        }
+    }
+    
+    // Método principal para probar
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        
+        limpiarConsola();
+        System.out.println("");
+        System.out.println("                             ARBOL B+                                   ");
+        System.out.println("");
+        
+        System.out.print("\nIngrese el grado maximo del arbol B+: ");
+        int gradoMaximo = scanner.nextInt();
+        int orden = gradoMaximo / 2;
+        
+        BPlusTreeMejorado arbol = new BPlusTreeMejorado(orden);
+        
+        while (true) {
+            limpiarConsola();
+            System.out.println("");
+            System.out.println("                             ARBOL B+                                   ");
+            System.out.println("");
+            
+            System.out.println("\n1. Insertar numero");
+            System.out.println("2. Eliminar numero");
+            System.out.println("3. Buscar numero");
+            System.out.println("4. Mostrar arbol");
+            System.out.println("5. Mostrar recorrido en orden");
+            System.out.println("6. Guardar arbol en archivo");
+            System.out.println("7. Cargar arbol desde archivo");
+            System.out.println("8. Limpiar consola");
+            System.out.println("9. Salir");
+            
+            System.out.print("\nSeleccione una opcion (1-9): ");
+            int opcion = scanner.nextInt();
+            scanner.nextLine(); // Consumir el salto de línea
+            
+            switch (opcion) {
+                case 1:
+                    System.out.print("Ingrese el numero a insertar: ");
+                    int numeroInsertar = scanner.nextInt();
+                    arbol.insertar(numeroInsertar);
+                    break;
+                    
+                case 2:
+                    System.out.print("Ingrese el numero a eliminar: ");
+                    int numeroEliminar = scanner.nextInt();
+                    boolean eliminado = arbol.eliminar(numeroEliminar);
+                    if (!eliminado) {
+                        System.out.println("Numero " + numeroEliminar + " no encontrado en el arbol.");
+                        System.out.print("Presione Enter para continuar...");
+                        try { System.in.read(); } catch (Exception e) {}
+                    }
+                    break;
+                    
+                case 3:
+                    System.out.print("Ingrese el numero a buscar: ");
+                    int numeroBuscar = scanner.nextInt();
+                    boolean encontrado = arbol.buscar(numeroBuscar);
+                    System.out.println(encontrado ? 
+                        " Numero " + numeroBuscar + " ENCONTRADO en el arbol." :
+                        " Numero " + numeroBuscar + " NO ENCONTRADO en el arbol.");
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 4:
+                    limpiarConsola();
+                    System.out.println("");
+                    System.out.println("                             ARBOL B+                                   ");
+                    System.out.println("🌳");
+                    System.out.println();
+                    arbol.imprimirPorNiveles();
+                    System.out.print("\nPresione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 5:
+                    List<Integer> recorrido = arbol.recorridoEnOrden();
+                    System.out.println(" Recorrido en orden: " + recorrido);
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 6:
+                    System.out.print("💾 Ingrese el nombre del archivo (ej: arbol.json): ");
+                    String archivoGuardar = scanner.nextLine();
+                    if (!archivoGuardar.endsWith(".json")) {
+                        archivoGuardar += ".json";
+                    }
+                    arbol.saveToFile(archivoGuardar);
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 7:
+                    System.out.print(" Ingrese el nombre del archivo (ej: arbol.json): ");
+                    String archivoCargar = scanner.nextLine();
+                    if (!archivoCargar.endsWith(".json")) {
+                        archivoCargar += ".json";
+                    }
+                    arbol.loadFromFile(archivoCargar);
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 8:
+                    limpiarConsola();
+                    System.out.println("🧹 Consola limpiada");
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+                    break;
+                    
+                case 9:
+                    limpiarConsola();
+                    System.out.println("�");
+                    System.out.println("                          Hasta luego!                                  ");
+                    System.out.println("");
+                    scanner.close();
+                    return;
+                    
+                default:
+                    System.out.println(" Opcion invalida. Intente de nuevo.");
+                    System.out.print("Presione Enter para continuar...");
+                    try { System.in.read(); } catch (Exception e) {}
+            }
+        }
+    }
+}
+// lo unico que no se logro al 100% fue que se pudiera borrar un nodo central que tenga mas de 2 guias
