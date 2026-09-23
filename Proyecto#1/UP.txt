@@ -1,0 +1,33 @@
+CREAR PACIENTES
+2000001,José,Manuel,Ramírez,López,1998-03-12,jose.ramirez@mail.com
+2000002,Sofía,Isabel,González,Morales,2005-06-20,sofia.gonzalez@mail.com
+2000003,Diego,Andrés,Pérez,Hernández,2002-10-05,diego.perez@mail.com
+2000004,Valeria,Mariana,Torres,García,2001-02-14,valeria.torres@mail.com
+2000005,Fernando,Antonio,López,Martínez,1999-09-25,fernando.lopez@mail.com
+
+ATENCION EMERGENCIA
+ID: 2000002,Prioridad: 14
+NOMBRES: José,Ramírez,Prioridad: 9
+NOMBRES: Valeria,Torres,Prioridad: 11
+NOMBRES: Pedro,Hernández,Prioridad: 7
+
+BORRAR PACIENTES
+2000005
+
+CREAR PACIENTES
+2000006,Lucía,Beatriz,Castillo,Pérez,2003-12-30,lucia.castillo@mail.com
+2000007,Mateo,Sebastián,Ruiz,Gómez,2004-04-08,mateo.ruiz@mail.com
+
+ATENCION EMERGENCIA
+NOMBRES: Sofía,González,Prioridad: 20
+ID: 2000006,Prioridad: 15
+NOMBRES: Fernando,López,Prioridad: 10
+ID: 2000007,Prioridad: 18
+
+BORRAR PACIENTES
+2000001
+2000003
+
+ATENCION EMERGENCIA
+NOMBRES: Lucía,Castillo,Prioridad: 8
+NOMBRES: Diego,Pérez,Prioridad: 12

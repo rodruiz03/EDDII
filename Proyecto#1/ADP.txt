@@ -1,0 +1,34 @@
+CREAR PACIENTES
+1000001,Ana,Lucía,Gómez,Pérez,2001-05-18,ana.gomez@mail.com
+1000002,Juan,Carlos,Méndez,López,1999-11-02,juan.mendez@mail.com
+1000003,Pedro,José,Méndez,Ramírez,2002-08-15,pedro.mendez@mail.com
+1000004,María,Fernanda,López,García,2000-01-25,maria.lopez@mail.com
+1000005,Luis,Alberto,Pérez,Castillo,2003-07-09,luis.perez@mail.com
+
+ATENCION EMERGENCIA
+ID: 1000001,Prioridad: 7
+NOMBRES: Juan,Méndez,Prioridad: 10
+NOMBRES: Pedro,Méndez,Prioridad: 8
+NOMBRES: Ana,Gómez,Prioridad: 9
+NOMBRES: José,Ramírez,Prioridad: 6
+
+BORRAR PACIENTES
+1000004
+
+CREAR PACIENTES
+1000006,Andrea,Sofía,Castillo,López,2004-09-30,andrea.castillo@mail.com
+1000007,Carlos,Enrique,Gómez,Torres,2001-12-11,carlos.gomez@mail.com
+
+ATENCION EMERGENCIA
+ID: 1000006,Prioridad: 15
+NOMBRES: Luis,Pérez,Prioridad: 12
+NOMBRES: María,López,Prioridad: 5
+ID: 1000004,Prioridad: 20
+
+BORRAR PACIENTES
+1000002
+1000005
+
+ATENCION EMERGENCIA
+NOMBRES: Andrea,Castillo,Prioridad: 18
+NOMBRES: Pedro,Méndez,Prioridad: 4

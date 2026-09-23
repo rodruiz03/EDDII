@@ -1,0 +1,1467 @@
+import javax.swing.*;
+import javax.swing.border.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.io.*;
+import java.nio.file.*;
+import java.util.*;
+import java.util.List;
+import java.util.prefs.*;
+import java.time.*;
+import java.time.format.*;
+
+// ============================================================================
+// CLASE PRINCIPAL - PUNTO DE ENTRADA
+// ============================================================================
+public class hola {
+    public static void main(String[] args) {
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        
+        SwingUtilities.invokeLater(() -> {
+            MainWindow window = new MainWindow();
+            window.setVisible(true);
+        });
+    }
+}
+
+// ============================================================================
+// VENTANA PRINCIPAL CON BARRA DE PROGRESO
+// ============================================================================
+class MainWindow extends JFrame {
+    private FileManagerCore fileManager;
+    private JTextArea logArea;
+    private Preferences prefs;
+    private String lastDirectory;
+    private JProgressBar progressBar;
+    private JLabel statusLabel;
+    
+    public MainWindow() {
+        fileManager = new FileManagerCore();
+        prefs = Preferences.userNodeForPackage(MainWindow.class);
+        lastDirectory = prefs.get("lastDirectory", System.getProperty("user.home"));
+        initComponents();
+    }
+    
+    private void initComponents() {
+        setTitle("Sistema de Gestión de Archivos Seguros");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(950, 750);
+        setLocationRelativeTo(null);
+        
+        JTabbedPane tabbedPane = new JTabbedPane();
+        tabbedPane.setFont(new Font("Arial", Font.BOLD, 13));
+        
+        tabbedPane.addTab("Procesar", createProcessPanel());
+        tabbedPane.addTab("Recuperar", createRecoverPanel());
+        tabbedPane.addTab("Log", createLogPanel());
+        
+        add(tabbedPane, BorderLayout.CENTER);
+        
+        // Panel de estado y progreso
+        JPanel statusPanel = new JPanel(new BorderLayout());
+        statusPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        
+        progressBar = new JProgressBar(0, 100);
+        progressBar.setVisible(false);
+        progressBar.setStringPainted(true);
+        
+        statusLabel = new JLabel("Listo");
+        statusLabel.setFont(new Font("Arial", Font.PLAIN, 12));
+        
+        statusPanel.add(statusLabel, BorderLayout.WEST);
+        statusPanel.add(progressBar, BorderLayout.CENTER);
+        
+        add(statusPanel, BorderLayout.SOUTH);
+        createMenuBar();
+    }
+    
+    private void createMenuBar() {
+        JMenuBar menuBar = new JMenuBar();
+        JMenu fileMenu = new JMenu("Archivo");
+        JMenuItem exitItem = new JMenuItem("Salir");
+        exitItem.addActionListener(e -> System.exit(0));
+        fileMenu.add(exitItem);
+        
+        JMenu helpMenu = new JMenu("Ayuda");
+        JMenuItem aboutItem = new JMenuItem("Acerca de");
+        aboutItem.addActionListener(e -> JOptionPane.showMessageDialog(this,
+            "Sistema de Gestión de Archivos Seguros v1.0\n" +
+            "Compresión: LZ77 + Huffman\n" +
+            "Encriptación: Algoritmo mejorado\n\n" +
+            "Desarrollado para Estructura de Datos II",
+            "Acerca de", JOptionPane.INFORMATION_MESSAGE));
+        helpMenu.add(aboutItem);
+        
+        menuBar.add(fileMenu);
+        menuBar.add(helpMenu);
+        setJMenuBar(menuBar);
+    }
+    
+    private JPanel createProcessPanel() {
+        JPanel panel = new JPanel(new BorderLayout(15, 15));
+        panel.setBorder(new EmptyBorder(25, 25, 25, 25));
+        
+        JPanel topPanel = new JPanel(new GridBagLayout());
+        topPanel.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createLineBorder(new Color(100, 100, 100)),
+            "Seleccionar Origen", TitledBorder.LEFT, TitledBorder.TOP,
+            new Font("Arial", Font.BOLD, 14)));
+        
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(8, 8, 8, 8);
+        
+        JTextField pathField = new JTextField(35);
+        pathField.setEditable(false);
+        pathField.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        
+        JButton selectFileBtn = new JButton("Archivo");
+        JButton selectFolderBtn = new JButton("Carpeta");
+        
+        styleButton(selectFileBtn, new Color(33, 150, 243));
+        styleButton(selectFolderBtn, new Color(255, 152, 0));
+        
+        selectFileBtn.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(lastDirectory);
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File selected = chooser.getSelectedFile();
+                pathField.setText(selected.getAbsolutePath());
+                lastDirectory = selected.getParent();
+                prefs.put("lastDirectory", lastDirectory);
+            }
+        });
+        
+        selectFolderBtn.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(lastDirectory);
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File selected = chooser.getSelectedFile();
+                pathField.setText(selected.getAbsolutePath());
+                lastDirectory = selected.getAbsolutePath();
+                prefs.put("lastDirectory", lastDirectory);
+            }
+        });
+        
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
+        topPanel.add(pathField, gbc);
+        gbc.gridx = 0; gbc.gridy = 1; gbc.gridwidth = 1;
+        topPanel.add(selectFileBtn, gbc);
+        gbc.gridx = 1;
+        topPanel.add(selectFolderBtn, gbc);
+        
+        JPanel centerPanel = new JPanel(new GridBagLayout());
+        centerPanel.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createLineBorder(new Color(100, 100, 100)),
+            "Operaciones", TitledBorder.LEFT, TitledBorder.TOP,
+            new Font("Arial", Font.BOLD, 14)));
+        
+        ButtonGroup operationGroup = new ButtonGroup();
+        JRadioButton compressRadio = new JRadioButton("Solo Compresión (LZ77 + Huffman)");
+        JRadioButton encryptRadio = new JRadioButton("Solo Encriptación");
+        JRadioButton bothRadio = new JRadioButton("Compresión + Encriptación", true);
+        
+        compressRadio.setFont(new Font("Arial", Font.PLAIN, 13));
+        encryptRadio.setFont(new Font("Arial", Font.PLAIN, 13));
+        bothRadio.setFont(new Font("Arial", Font.PLAIN, 13));
+        
+        operationGroup.add(compressRadio);
+        operationGroup.add(encryptRadio);
+        operationGroup.add(bothRadio);
+        
+        JLabel passwordLabel = new JLabel("Contraseña:");
+        passwordLabel.setFont(new Font("Arial", Font.BOLD, 13));
+        JPasswordField passwordField = new JPasswordField(20);
+        
+        gbc.gridx = 0; gbc.gridy = 0; gbc.gridwidth = 2;
+        centerPanel.add(compressRadio, gbc);
+        gbc.gridy = 1;
+        centerPanel.add(encryptRadio, gbc);
+        gbc.gridy = 2;
+        centerPanel.add(bothRadio, gbc);
+        gbc.gridy = 3; gbc.gridwidth = 1;
+        centerPanel.add(passwordLabel, gbc);
+        gbc.gridx = 1;
+        centerPanel.add(passwordField, gbc);
+        
+        JPanel bottomPanel = new JPanel();
+        JButton processBtn = new JButton("PROCESAR");
+        processBtn.setFont(new Font("Arial", Font.BOLD, 15));
+        processBtn.setPreferredSize(new Dimension(220, 45));
+        styleButton(processBtn, new Color(76, 175, 80));
+        
+        processBtn.addActionListener(e -> {
+            String path = pathField.getText();
+            if (path.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Seleccione un archivo o carpeta");
+                return;
+            }
+            
+            String operation = compressRadio.isSelected() ? "compress" :
+                             encryptRadio.isSelected() ? "encrypt" : "both";
+            
+            String password = null;
+            if (!operation.equals("compress")) {
+                password = new String(passwordField.getPassword());
+                if (password.isEmpty()) {
+                    JOptionPane.showMessageDialog(this, "Ingrese una contraseña");
+                    return;
+                }
+            }
+            
+            processPath(path, operation, password);
+        });
+        
+        bottomPanel.add(processBtn);
+        
+        panel.add(topPanel, BorderLayout.NORTH);
+        panel.add(centerPanel, BorderLayout.CENTER);
+        panel.add(bottomPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private JPanel createRecoverPanel() {
+        JPanel panel = new JPanel(new BorderLayout(15, 15));
+        panel.setBorder(new EmptyBorder(25, 25, 25, 25));
+        
+        JPanel topPanel = new JPanel(new GridBagLayout());
+        topPanel.setBorder(BorderFactory.createTitledBorder(
+            BorderFactory.createLineBorder(new Color(100, 100, 100)),
+            "Recuperar Archivos", TitledBorder.LEFT, TitledBorder.TOP,
+            new Font("Arial", Font.BOLD, 14)));
+        
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.insets = new Insets(8, 8, 8, 8);
+        
+        JLabel sourceLabel = new JLabel("Origen:");
+        sourceLabel.setFont(new Font("Arial", Font.BOLD, 13));
+        JTextField sourceField = new JTextField(25);
+        sourceField.setEditable(false);
+        JButton browseSourceBtn = new JButton("Examinar");
+        styleButton(browseSourceBtn, new Color(33, 150, 243));
+        
+        JLabel destLabel = new JLabel("Destino:");
+        destLabel.setFont(new Font("Arial", Font.BOLD, 13));
+        JTextField destField = new JTextField(25);
+        destField.setEditable(false);
+        JButton browseDestBtn = new JButton("Examinar");
+        styleButton(browseDestBtn, new Color(255, 152, 0));
+        
+        JLabel passwordLabel = new JLabel("Contraseña:");
+        passwordLabel.setFont(new Font("Arial", Font.BOLD, 13));
+        JPasswordField passwordField = new JPasswordField(25);
+        
+        browseSourceBtn.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(lastDirectory);
+            chooser.setFileSelectionMode(JFileChooser.FILES_AND_DIRECTORIES);
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File selected = chooser.getSelectedFile();
+                sourceField.setText(selected.getAbsolutePath());
+                lastDirectory = selected.isDirectory() ? selected.getAbsolutePath() : selected.getParent();
+                prefs.put("lastDirectory", lastDirectory);
+            }
+        });
+        
+        browseDestBtn.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser(lastDirectory);
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
+                File selected = chooser.getSelectedFile();
+                destField.setText(selected.getAbsolutePath());
+                lastDirectory = selected.getAbsolutePath();
+                prefs.put("lastDirectory", lastDirectory);
+            }
+        });
+        
+        gbc.gridx = 0; gbc.gridy = 0;
+        topPanel.add(sourceLabel, gbc);
+        gbc.gridx = 1;
+        topPanel.add(sourceField, gbc);
+        gbc.gridx = 2;
+        topPanel.add(browseSourceBtn, gbc);
+        
+        gbc.gridx = 0; gbc.gridy = 1;
+        topPanel.add(destLabel, gbc);
+        gbc.gridx = 1;
+        topPanel.add(destField, gbc);
+        gbc.gridx = 2;
+        topPanel.add(browseDestBtn, gbc);
+        
+        gbc.gridx = 0; gbc.gridy = 2;
+        topPanel.add(passwordLabel, gbc);
+        gbc.gridx = 1; gbc.gridwidth = 2;
+        topPanel.add(passwordField, gbc);
+        
+        JPanel bottomPanel = new JPanel();
+        JButton recoverBtn = new JButton("RECUPERAR");
+        recoverBtn.setFont(new Font("Arial", Font.BOLD, 15));
+        recoverBtn.setPreferredSize(new Dimension(220, 45));
+        styleButton(recoverBtn, new Color(156, 39, 176));
+        
+        recoverBtn.addActionListener(e -> {
+            String source = sourceField.getText();
+            String dest = destField.getText();
+            
+            if (source.isEmpty() || dest.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Complete todos los campos");
+                return;
+            }
+            
+            String password = new String(passwordField.getPassword());
+            recoverPath(source, dest, password.isEmpty() ? null : password);
+        });
+        
+        bottomPanel.add(recoverBtn);
+        
+        panel.add(topPanel, BorderLayout.CENTER);
+        panel.add(bottomPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private JPanel createLogPanel() {
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(new EmptyBorder(20, 20, 20, 20));
+        
+        logArea = new JTextArea();
+        logArea.setEditable(false);
+        logArea.setFont(new Font("Monospaced", Font.PLAIN, 12));
+        
+        JScrollPane scrollPane = new JScrollPane(logArea);
+        scrollPane.setBorder(BorderFactory.createTitledBorder("Registro de Operaciones"));
+        
+        JPanel buttonPanel = new JPanel();
+        JButton refreshBtn = new JButton("Actualizar");
+        JButton saveBtn = new JButton("Guardar Log");
+        JButton clearBtn = new JButton("Limpiar");
+        
+        styleButton(refreshBtn, new Color(33, 150, 243));
+        styleButton(saveBtn, new Color(76, 175, 80));
+        styleButton(clearBtn, new Color(244, 67, 54));
+        
+        refreshBtn.addActionListener(e -> updateLogDisplay());
+        saveBtn.addActionListener(e -> {
+            fileManager.saveLog();
+            JOptionPane.showMessageDialog(this, "Log guardado en operations_log.txt");
+        });
+        clearBtn.addActionListener(e -> logArea.setText(""));
+        
+        buttonPanel.add(refreshBtn);
+        buttonPanel.add(saveBtn);
+        buttonPanel.add(clearBtn);
+        
+        panel.add(scrollPane, BorderLayout.CENTER);
+        panel.add(buttonPanel, BorderLayout.SOUTH);
+        
+        return panel;
+    }
+    
+    private void styleButton(JButton button, Color color) {
+        button.setBackground(color);
+        button.setForeground(Color.WHITE);
+        button.setFocusPainted(false);
+        button.setFont(new Font("Arial", Font.BOLD, 12));
+        button.setCursor(new Cursor(Cursor.HAND_CURSOR));
+    }
+    
+    private void processPath(String path, String operation, String password) {
+        setProgressVisible(true, "Iniciando procesamiento...");
+        
+        new SwingWorker<String, String>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                File file = new File(path);
+                if (file.isDirectory()) {
+                    publish("Procesando carpeta...");
+                    fileManager.processFolder(path, operation, password, MainWindow.this::updateProgress);
+                    return "Carpeta procesada exitosamente";
+                } else {
+                    publish("Procesando archivo...");
+                    ProcessResult result = fileManager.processFile(path, operation, password, MainWindow.this::updateProgress);
+                    return String.format("Archivo procesado exitosamente\n\nNuevo archivo: %s\nTasa de compresión: %.2f%%", 
+                        new File(result.newPath).getName(), result.compressionRatio);
+                }
+            }
+            
+            @Override
+            protected void process(java.util.List<String> chunks) {
+                if (!chunks.isEmpty()) {
+                    statusLabel.setText(chunks.get(0));
+                }
+            }
+            
+            @Override
+            protected void done() {
+                try {
+                    String msg = get();
+                    JOptionPane.showMessageDialog(MainWindow.this, msg, "Éxito", 
+                        JOptionPane.INFORMATION_MESSAGE);
+                    updateLogDisplay();
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(MainWindow.this, 
+                        "Error: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    e.printStackTrace();
+                } finally {
+                    setProgressVisible(false, "Listo");
+                }
+            }
+        }.execute();
+    }
+    
+    private void recoverPath(String source, String dest, String password) {
+        setProgressVisible(true, "Iniciando recuperación...");
+        
+        new SwingWorker<String, String>() {
+            @Override
+            protected String doInBackground() throws Exception {
+                File file = new File(source);
+                if (file.isDirectory()) {
+                    publish("Recuperando carpeta...");
+                    fileManager.recoverFolder(source, dest, password, MainWindow.this::updateProgress);
+                    return "Carpeta recuperada exitosamente";
+                } else {
+                    publish("Recuperando archivo...");
+                    String recovered = fileManager.recoverFile(source, dest, password, MainWindow.this::updateProgress);
+                    return "Archivo recuperado exitosamente:\n" + new File(recovered).getName();
+                }
+            }
+            
+            @Override
+            protected void process(java.util.List<String> chunks) {
+                if (!chunks.isEmpty()) {
+                    statusLabel.setText(chunks.get(0));
+                }
+            }
+            
+            @Override
+            protected void done() {
+                try {
+                    String msg = get();
+                    JOptionPane.showMessageDialog(MainWindow.this, msg, "Éxito", 
+                        JOptionPane.INFORMATION_MESSAGE);
+                    updateLogDisplay();
+                } catch (Exception e) {
+                    JOptionPane.showMessageDialog(MainWindow.this, 
+                        "Error: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+                    e.printStackTrace();
+                } finally {
+                    setProgressVisible(false, "Listo");
+                }
+            }
+        }.execute();
+    }
+    
+    private void updateLogDisplay() {
+        logArea.setText("");
+        List<LogEntry> entries = fileManager.getLogEntries();
+        
+        if (entries.isEmpty()) {
+            logArea.append("No hay operaciones registradas.\n");
+            return;
+        }
+        
+        for (int i = 0; i < entries.size(); i++) {
+            LogEntry entry = entries.get(i);
+            logArea.append(String.format("=== Operación %d ===\n", i + 1));
+            logArea.append(String.format("Archivo original: %s\n", entry.originalFile));
+            logArea.append(String.format("Archivo nuevo: %s\n", entry.newFile));
+            logArea.append(String.format("Operación: %s\n", entry.operation));
+            logArea.append(String.format("Tamaño original: %,d bytes\n", entry.originalSize));
+            logArea.append(String.format("Tamaño nuevo: %,d bytes\n", entry.newSize));
+            if (entry.compressionRatio > 0) {
+                logArea.append(String.format("Tasa de compresión: %.2f%%\n", entry.compressionRatio));
+            }
+            logArea.append(String.format("Tiempo de proceso: %.3f segundos\n", entry.totalTime));
+            logArea.append(String.format("Fecha: %s\n\n", entry.timestamp));
+        }
+    }
+    
+    public void updateProgress(int progress, String message) {
+        SwingUtilities.invokeLater(() -> {
+            progressBar.setValue(progress);
+            statusLabel.setText(message);
+        });
+    }
+    
+    private void setProgressVisible(boolean visible, String message) {
+        progressBar.setVisible(visible);
+        progressBar.setIndeterminate(visible);
+        statusLabel.setText(message);
+        if (!visible) {
+            progressBar.setValue(0);
+        }
+    }
+}
+
+// ============================================================================
+// ALGORITMO LZ77 - COMPRESIÓN CON PROGRESO
+// ============================================================================
+class LZ77Compressor {
+    private static final int WINDOW_SIZE = 8192;
+    private static final int LOOKAHEAD_SIZE = 256;
+    
+    public List<LZ77Token> compress(byte[] data, ProgressCallback callback) {
+        List<LZ77Token> compressed = new ArrayList<>();
+        int i = 0;
+        
+        while (i < data.length) {
+            int searchWindowStart = Math.max(0, i - WINDOW_SIZE);
+            int lookaheadEnd = Math.min(data.length, i + LOOKAHEAD_SIZE);
+            
+            int bestMatchOffset = 0;
+            int bestMatchLength = 0;
+            byte bestNextChar = 0;
+            
+            int maxLength = Math.min(LOOKAHEAD_SIZE, data.length - i);
+            
+            for (int j = searchWindowStart; j < i; j++) {
+                int length = 0;
+                while (length < maxLength && (j + length) < i && 
+                       (i + length) < data.length && data[j + length] == data[i + length]) {
+                    length++;
+                }
+                
+                if (length > bestMatchLength) {
+                    bestMatchLength = length;
+                    bestMatchOffset = i - j;
+                    if (i + length < data.length) {
+                        bestNextChar = data[i + length];
+                    }
+                }
+            }
+            
+            if (bestMatchLength > 2) {
+                compressed.add(new LZ77Token(bestMatchOffset, bestMatchLength, bestNextChar));
+                i += bestMatchLength + 1;
+            } else {
+                compressed.add(new LZ77Token(0, 0, data[i]));
+                i++;
+            }
+            
+            // Actualizar progreso cada 1000 tokens procesados
+            if (callback != null && compressed.size() % 1000 == 0) {
+                int progress = (int)((i * 50.0) / data.length);
+                callback.update(progress, "Comprimiendo con LZ77: " + i + "/" + data.length + " bytes");
+            }
+        }
+        
+        return compressed;
+    }
+    
+    public byte[] decompress(List<LZ77Token> compressed, ProgressCallback callback) {
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        int totalTokens = compressed.size();
+        
+        for (int idx = 0; idx < compressed.size(); idx++) {
+            LZ77Token token = compressed.get(idx);
+            
+            if (token.offset > 0 && token.length > 0) {
+                int start = output.size() - token.offset;
+                for (int i = 0; i < token.length; i++) {
+                    output.write(output.toByteArray()[start + i]);
+                }
+            }
+            
+            if (token.nextChar != 0 || (token.offset == 0 && token.length == 0)) {
+                output.write(token.nextChar);
+            }
+            
+            // Actualizar progreso
+            if (callback != null && idx % 1000 == 0) {
+                int progress = (int)((idx * 50.0) / totalTokens);
+                callback.update(progress, "Descomprimiendo con LZ77: " + idx + "/" + totalTokens + " tokens");
+            }
+        }
+        
+        return output.toByteArray();
+    }
+}
+
+class LZ77Token {
+    int offset;
+    int length;
+    byte nextChar;
+    
+    public LZ77Token(int offset, int length, byte nextChar) {
+        this.offset = offset;
+        this.length = length;
+        this.nextChar = nextChar;
+    }
+}
+
+// ============================================================================
+// ALGORITMO HUFFMAN - COMPRESIÓN CON PROGRESO
+// ============================================================================
+class HuffmanCompressor {
+    
+    static class Nodo implements Comparable<Nodo> {
+        byte caracter;
+        int frecuencia;
+        Nodo izquierda;
+        Nodo derecha;
+        boolean esHoja;
+        
+        Nodo(byte caracter, int frecuencia) {
+            this.caracter = caracter;
+            this.frecuencia = frecuencia;
+            this.esHoja = true;
+        }
+        
+        Nodo(int frecuencia, Nodo izquierda, Nodo derecha) {
+            this.frecuencia = frecuencia;
+            this.izquierda = izquierda;
+            this.derecha = derecha;
+            this.esHoja = false;
+        }
+        
+        @Override
+        public int compareTo(Nodo o) {
+            return Integer.compare(this.frecuencia, o.frecuencia);
+        }
+    }
+    
+    public HuffmanResult compress(byte[] data, ProgressCallback callback) {
+        if (data.length == 0) {
+            return new HuffmanResult(new byte[0], new HashMap<>(), 0);
+        }
+        
+        Map<Byte, Integer> frecuencias = new HashMap<>();
+        for (int i = 0; i < data.length; i++) {
+            byte b = data[i];
+            frecuencias.put(b, frecuencias.getOrDefault(b, 0) + 1);
+            
+            if (callback != null && i % 10000 == 0) {
+                int progress = 50 + (int)((i * 25.0) / data.length);
+                callback.update(progress, "Analizando frecuencias: " + i + "/" + data.length + " bytes");
+            }
+        }
+        
+        Nodo raiz = construirArbolHuffman(frecuencias);
+        
+        Map<Byte, String> codes = new HashMap<>();
+        generarCodigos(raiz, "", codes);
+        
+        StringBuilder encoded = new StringBuilder();
+        for (int i = 0; i < data.length; i++) {
+            encoded.append(codes.get(data[i]));
+            
+            if (callback != null && i % 10000 == 0) {
+                int progress = 75 + (int)((i * 25.0) / data.length);
+                callback.update(progress, "Codificando datos: " + i + "/" + data.length + " bytes");
+            }
+        }
+        
+        int padding = 8 - (encoded.length() % 8);
+        if (padding == 8) padding = 0;
+        
+        for (int i = 0; i < padding; i++) {
+            encoded.append("0");
+        }
+        
+        byte[] compressed = new byte[encoded.length() / 8];
+        for (int i = 0; i < compressed.length; i++) {
+            String byteStr = encoded.substring(i * 8, (i + 1) * 8);
+            compressed[i] = (byte) Integer.parseInt(byteStr, 2);
+        }
+        
+        return new HuffmanResult(compressed, codes, padding);
+    }
+    
+    public byte[] decompress(byte[] compressed, Map<Byte, String> codes, int padding, ProgressCallback callback) {
+        Map<String, Byte> reverseCodes = new HashMap<>();
+        for (Map.Entry<Byte, String> entry : codes.entrySet()) {
+            reverseCodes.put(entry.getValue(), entry.getKey());
+        }
+        
+        StringBuilder bitString = new StringBuilder();
+        for (int i = 0; i < compressed.length; i++) {
+            String bits = String.format("%8s", Integer.toBinaryString(compressed[i] & 0xFF)).replace(' ', '0');
+            bitString.append(bits);
+            
+            if (callback != null && i % 1000 == 0) {
+                int progress = 50 + (int)((i * 25.0) / compressed.length);
+                callback.update(progress, "Preparando datos: " + i + "/" + compressed.length + " bytes");
+            }
+        }
+        
+        if (padding > 0) {
+            bitString.setLength(bitString.length() - padding);
+        }
+        
+        ByteArrayOutputStream output = new ByteArrayOutputStream();
+        StringBuilder currentCode = new StringBuilder();
+        
+        for (int i = 0; i < bitString.length(); i++) {
+            currentCode.append(bitString.charAt(i));
+            Byte decodedByte = reverseCodes.get(currentCode.toString());
+            if (decodedByte != null) {
+                output.write(decodedByte);
+                currentCode.setLength(0);
+            }
+            
+            if (callback != null && i % 100000 == 0) {
+                int progress = 75 + (int)((i * 25.0) / bitString.length());
+                callback.update(progress, "Decodificando: " + i + "/" + bitString.length() + " bits");
+            }
+        }
+        
+        return output.toByteArray();
+    }
+    
+    private Nodo construirArbolHuffman(Map<Byte, Integer> frecuencias) {
+        PriorityQueue<Nodo> cola = new PriorityQueue<>();
+        
+        for (Map.Entry<Byte, Integer> entry : frecuencias.entrySet()) {
+            cola.offer(new Nodo(entry.getKey(), entry.getValue()));
+        }
+        
+        while (cola.size() > 1) {
+            Nodo izq = cola.poll();
+            Nodo der = cola.poll();
+            Nodo padre = new Nodo(izq.frecuencia + der.frecuencia, izq, der);
+            cola.offer(padre);
+        }
+        
+        return cola.poll();
+    }
+    
+    private void generarCodigos(Nodo nodo, String codigo, Map<Byte, String> codes) {
+        if (nodo == null) return;
+        
+        if (nodo.esHoja) {
+            codes.put(nodo.caracter, codigo.isEmpty() ? "0" : codigo);
+        } else {
+            generarCodigos(nodo.izquierda, codigo + "0", codes);
+            generarCodigos(nodo.derecha, codigo + "1", codes);
+        }
+    }
+}
+
+class HuffmanResult {
+    byte[] compressed;
+    Map<Byte, String> codes;
+    int padding;
+    
+    public HuffmanResult(byte[] compressed, Map<Byte, String> codes, int padding) {
+        this.compressed = compressed;
+        this.codes = codes;
+        this.padding = padding;
+    }
+}
+
+// ============================================================================
+// INTERFAZ PARA CALLBACK DE PROGRESO
+// ============================================================================
+interface ProgressCallback {
+    void update(int progress, String message);
+}
+
+// ============================================================================
+// ALGORITMO DE ENCRIPTACIÓN MEJORADO Y ROBUSTO
+// ============================================================================
+class SimpleEncryptor {
+    private static final int BLOCK_SIZE = 16;
+    private static final int KEY_SIZE = 32;
+    
+    public byte[] encrypt(byte[] data, String password, ProgressCallback callback) {
+        if (password == null || password.isEmpty()) {
+            return data;
+        }
+        
+        try {
+            byte[] key = deriveKey(password);
+            byte[] iv = generateIV();
+            byte[] paddedData = applyPadding(data);
+            
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            output.write(iv);
+            
+            int totalBlocks = paddedData.length / BLOCK_SIZE;
+            
+            for (int i = 0; i < totalBlocks; i++) {
+                byte[] block = Arrays.copyOfRange(paddedData, i * BLOCK_SIZE, (i + 1) * BLOCK_SIZE);
+                byte[] encryptedBlock = encryptBlock(block, key, iv, i);
+                output.write(encryptedBlock);
+                
+                if (callback != null && i % 100 == 0) {
+                    int progress = (int) ((i * 100.0) / totalBlocks);
+                    callback.update(progress, "Encriptando: " + i + "/" + totalBlocks + " bloques");
+                }
+            }
+            
+            return output.toByteArray();
+        } catch (Exception e) {
+            throw new RuntimeException("Error durante la encriptación: " + e.getMessage(), e);
+        }
+    }
+    
+    public byte[] decrypt(byte[] encryptedData, String password, ProgressCallback callback) {
+        if (password == null || password.isEmpty()) {
+            return encryptedData;
+        }
+        
+        try {
+            // Verificar tamaño mínimo
+            if (encryptedData.length < BLOCK_SIZE) {
+                throw new IllegalArgumentException("Datos encriptados demasiado cortos");
+            }
+            
+            byte[] key = deriveKey(password);
+            byte[] iv = Arrays.copyOfRange(encryptedData, 0, BLOCK_SIZE);
+            byte[] ciphertext = Arrays.copyOfRange(encryptedData, BLOCK_SIZE, encryptedData.length);
+            
+            // Verificar que el ciphertext tenga longitud múltiplo de BLOCK_SIZE
+            if (ciphertext.length % BLOCK_SIZE != 0) {
+                throw new IllegalArgumentException("Longitud de datos encriptados inválida");
+            }
+            
+            ByteArrayOutputStream output = new ByteArrayOutputStream();
+            int totalBlocks = ciphertext.length / BLOCK_SIZE;
+            
+            for (int i = 0; i < totalBlocks; i++) {
+                byte[] block = Arrays.copyOfRange(ciphertext, i * BLOCK_SIZE, (i + 1) * BLOCK_SIZE);
+                byte[] decryptedBlock = decryptBlock(block, key, iv, i);
+                output.write(decryptedBlock);
+                
+                if (callback != null && i % 100 == 0) {
+                    int progress = (int) ((i * 100.0) / totalBlocks);
+                    callback.update(progress, "Desencriptando: " + i + "/" + totalBlocks + " bloques");
+                }
+            }
+            
+            return removePadding(output.toByteArray());
+        } catch (Exception e) {
+            throw new RuntimeException("Error durante la desencriptación: " + e.getMessage(), e);
+        }
+    }
+    
+    private byte[] encryptBlock(byte[] block, byte[] key, byte[] iv, int blockIndex) {
+        byte[] result = Arrays.copyOf(block, block.length);
+        
+        // Mezclar con IV y posición del bloque
+        for (int i = 0; i < BLOCK_SIZE; i++) {
+            result[i] ^= iv[i % iv.length];
+            result[i] ^= key[(i + blockIndex) % key.length];
+        }
+        
+        // Aplicar transformaciones simples
+        for (int round = 0; round < 3; round++) {
+            for (int i = 0; i < BLOCK_SIZE; i++) {
+                result[i] = (byte) ((result[i] + key[(i + round) % key.length]) & 0xFF);
+                result[i] = (byte) ((result[i] ^ key[(BLOCK_SIZE - i + round) % key.length]) & 0xFF);
+            }
+            
+            // Rotar bloque
+            if (round < 2) {
+                result = rotateRight(result, round + 1);
+            }
+        }
+        
+        return result;
+    }
+    
+    private byte[] decryptBlock(byte[] block, byte[] key, byte[] iv, int blockIndex) {
+        byte[] result = Arrays.copyOf(block, block.length);
+        
+        // Aplicar transformaciones inversas
+        for (int round = 2; round >= 0; round--) {
+            // Rotar inverso
+            if (round < 2) {
+                result = rotateLeft(result, round + 1);
+            }
+            
+            for (int i = BLOCK_SIZE - 1; i >= 0; i--) {
+                result[i] = (byte) ((result[i] ^ key[(BLOCK_SIZE - i + round) % key.length]) & 0xFF);
+                result[i] = (byte) ((result[i] - key[(i + round) % key.length]) & 0xFF);
+            }
+        }
+        
+        // Deshacer mezcla con IV y posición del bloque
+        for (int i = 0; i < BLOCK_SIZE; i++) {
+            result[i] ^= key[(i + blockIndex) % key.length];
+            result[i] ^= iv[i % iv.length];
+        }
+        
+        return result;
+    }
+    
+    private byte[] rotateRight(byte[] data, int positions) {
+        byte[] result = new byte[data.length];
+        for (int i = 0; i < data.length; i++) {
+            result[(i + positions) % data.length] = data[i];
+        }
+        return result;
+    }
+    
+    private byte[] rotateLeft(byte[] data, int positions) {
+        byte[] result = new byte[data.length];
+        for (int i = 0; i < data.length; i++) {
+            result[i] = data[(i + positions) % data.length];
+        }
+        return result;
+    }
+    
+    private byte[] deriveKey(String password) {
+        byte[] passwordBytes = password.getBytes();
+        byte[] key = new byte[KEY_SIZE];
+        
+        // Derivación simple pero efectiva de clave
+        for (int i = 0; i < KEY_SIZE; i++) {
+            int passwordIndex = i % passwordBytes.length;
+            int prev = (i > 0) ? (key[i - 1] & 0xFF) : 0x7F;
+            key[i] = (byte) ((passwordBytes[passwordIndex] + prev + i * 31) % 256);
+        }
+        
+        return key;
+    }
+    
+    private byte[] generateIV() {
+        byte[] iv = new byte[BLOCK_SIZE];
+        Random random = new Random();
+        random.nextBytes(iv);
+        return iv;
+    }
+    
+    private byte[] applyPadding(byte[] data) {
+        int padding = BLOCK_SIZE - (data.length % BLOCK_SIZE);
+        if (padding == 0) padding = BLOCK_SIZE;
+        
+        byte[] padded = new byte[data.length + padding];
+        System.arraycopy(data, 0, padded, 0, data.length);
+        
+        // Rellenar con el valor del padding
+        for (int i = data.length; i < padded.length; i++) {
+            padded[i] = (byte) padding;
+        }
+        
+        return padded;
+    }
+    
+    private byte[] removePadding(byte[] data) {
+        if (data.length == 0) return data;
+        
+        int padding = data[data.length - 1] & 0xFF;
+        
+        // Validar padding
+        if (padding < 1 || padding > BLOCK_SIZE) {
+            return data;
+        }
+        
+        // Verificar que todos los bytes de padding sean correctos
+        for (int i = data.length - padding; i < data.length; i++) {
+            if ((data[i] & 0xFF) != padding) {
+                return data;
+            }
+        }
+        
+        return Arrays.copyOf(data, data.length - padding);
+    }
+}
+
+// ============================================================================
+// CLASE PARA MANEJO DE METADATA
+// ============================================================================
+class ProcessedFileInfo {
+    String originalName;
+    String operation;
+    byte[] data;
+    
+    public ProcessedFileInfo(String originalName, String operation, byte[] data) {
+        this.originalName = originalName;
+        this.operation = operation;
+        this.data = data;
+    }
+}
+
+// ============================================================================
+// GESTOR DE ARCHIVOS - VERSIÓN CON PROGRESO
+// ============================================================================
+class FileManagerCore {
+    private LZ77Compressor lz77;
+    private HuffmanCompressor huffman;
+    private SimpleEncryptor encryptor;
+    private List<LogEntry> logEntries;
+    
+    public FileManagerCore() {
+        lz77 = new LZ77Compressor();
+        huffman = new HuffmanCompressor();
+        encryptor = new SimpleEncryptor();
+        logEntries = new ArrayList<>();
+    }
+    
+    public ProcessResult processFile(String filePath, String operation, String password, ProgressCallback callback) throws Exception {
+        long startTime = System.currentTimeMillis();
+        File file = new File(filePath);
+        if (!file.exists()) {
+            throw new FileNotFoundException("Archivo no encontrado: " + filePath);
+        }
+        
+        long originalSize = file.length();
+        String originalName = file.getName();
+        
+        if (callback != null) callback.update(0, "Leyendo archivo...");
+        byte[] data = Files.readAllBytes(file.toPath());
+        
+        if (callback != null) callback.update(5, "Archivo leído, procesando...");
+        byte[] processedData = data;
+        
+        // Aplicar operaciones en el orden correcto
+        if (operation.equals("compress") || operation.equals("both")) {
+            if (callback != null) callback.update(10, "Iniciando compresión...");
+            processedData = compressData(processedData, callback);
+            if (callback != null) callback.update(80, "Compresión completada");
+        }
+        
+        if (operation.equals("encrypt") || operation.equals("both")) {
+            if (callback != null) callback.update(80, "Iniciando encriptación...");
+            processedData = encryptor.encrypt(processedData, password, callback);
+            if (callback != null) callback.update(95, "Encriptación completada");
+        }
+        
+        String newFilePath = getNewFilePath(filePath, operation);
+        if (callback != null) callback.update(95, "Guardando archivo...");
+        saveProcessedFile(newFilePath, processedData, originalName, operation);
+        
+        long newSize = new File(newFilePath).length();
+        double compressionRatio = (originalSize > 0) ? (1 - (double)newSize / originalSize) * 100 : 0;
+        double totalTime = (System.currentTimeMillis() - startTime) / 1000.0;
+        
+        LogEntry entry = new LogEntry();
+        entry.originalFile = originalName;
+        entry.newFile = new File(newFilePath).getName();
+        entry.operation = getOperationName(operation);
+        entry.originalSize = originalSize;
+        entry.newSize = newSize;
+        entry.compressionRatio = operation.equals("encrypt") ? 0 : compressionRatio;
+        entry.totalTime = totalTime;
+        entry.timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        
+        logEntries.add(entry);
+        
+        if (callback != null) callback.update(100, "Proceso completado");
+        
+        return new ProcessResult(newFilePath, compressionRatio);
+    }
+    
+    public void processFolder(String folderPath, String operation, String password, ProgressCallback callback) throws Exception {
+        File folder = new File(folderPath);
+        if (!folder.exists() || !folder.isDirectory()) {
+            throw new IllegalArgumentException("La carpeta no existe: " + folderPath);
+        }
+        
+        String folderName = folder.getName();
+        String newFolderName = folderName + "_" + getOperationSuffix(operation);
+        String newFolderPath = new File(folder.getParent(), newFolderName).getAbsolutePath();
+        
+        Files.createDirectories(Paths.get(newFolderPath));
+        
+        List<File> allFiles = getAllFiles(folder);
+        int totalFiles = allFiles.size();
+        
+        for (int i = 0; i < allFiles.size(); i++) {
+            File file = allFiles.get(i);
+            try {
+                if (callback != null) {
+                    callback.update((i * 100) / totalFiles, 
+                        "Procesando archivo " + (i + 1) + " de " + totalFiles + ": " + file.getName());
+                }
+                
+                String targetFilePath = new File(newFolderPath, getNewFileName(file.getName(), operation)).getAbsolutePath();
+                ProcessResult result = processFile(file.getAbsolutePath(), operation, password, null);
+                
+                File resultFile = new File(result.newPath);
+                if (!resultFile.getAbsolutePath().equals(targetFilePath)) {
+                    Files.move(resultFile.toPath(), Paths.get(targetFilePath), StandardCopyOption.REPLACE_EXISTING);
+                }
+            } catch (Exception e) {
+                System.err.println("Error procesando archivo: " + file.getName() + " - " + e.getMessage());
+            }
+        }
+        
+        if (callback != null) callback.update(100, "Carpeta procesada completamente");
+    }
+    
+    public String recoverFile(String filePath, String outputPath, String password, ProgressCallback callback) throws Exception {
+        long startTime = System.currentTimeMillis();
+        File file = new File(filePath);
+        if (!file.exists()) {
+            throw new IllegalArgumentException("Archivo no existe: " + filePath);
+        }
+        
+        String operation = determineOperation(filePath);
+        if (callback != null) callback.update(0, "Leyendo archivo...");
+        byte[] fileData = Files.readAllBytes(file.toPath());
+        
+        if (callback != null) callback.update(10, "Extrayendo metadata...");
+        ProcessedFileInfo fileInfo;
+        try {
+            fileInfo = extractFileInfo(fileData);
+        } catch (Exception e) {
+            throw new Exception("Error al leer metadata: " + e.getMessage() + 
+                              " - El archivo puede estar corrupto", e);
+        }
+        
+        byte[] processedData = fileInfo.data;
+        
+        // ORDEN CORRECTO: Primero desencriptar, luego descomprimir
+        if (operation.equals("encrypt") || operation.equals("both")) {
+            try {
+                if (callback != null) callback.update(20, "Desencriptando...");
+                processedData = encryptor.decrypt(processedData, password, callback);
+                if (callback != null) callback.update(60, "Desencriptación completada");
+            } catch (Exception e) {
+                throw new Exception("Error al desencriptar: " + e.getMessage() + 
+                                  " - Verifique la contraseña", e);
+            }
+        }
+        
+        if (operation.equals("compress") || operation.equals("both")) {
+            try {
+                if (callback != null) callback.update(60, "Descomprimiendo...");
+                processedData = decompressData(processedData, callback);
+                if (callback != null) callback.update(90, "Descompresión completada");
+            } catch (EOFException e) {
+                throw new Exception("Error: Archivo comprimido corrupto o formato incorrecto", e);
+            } catch (Exception e) {
+                throw new Exception("Error al descomprimir: " + e.getMessage(), e);
+            }
+        }
+        
+        String finalPath = new File(outputPath, fileInfo.originalName).getAbsolutePath();
+        if (callback != null) callback.update(90, "Guardando archivo recuperado...");
+        Files.write(Paths.get(finalPath), processedData);
+        
+        LogEntry entry = new LogEntry();
+        entry.originalFile = file.getName();
+        entry.newFile = fileInfo.originalName;
+        entry.operation = "recuperar_" + getOperationName(operation);
+        entry.originalSize = file.length();
+        entry.newSize = processedData.length;
+        entry.compressionRatio = 0;
+        entry.totalTime = (System.currentTimeMillis() - startTime) / 1000.0;
+        entry.timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        
+        logEntries.add(entry);
+        
+        if (callback != null) callback.update(100, "Recuperación completada");
+        
+        return finalPath;
+    }
+    
+    public void recoverFolder(String folderPath, String outputPath, String password, ProgressCallback callback) throws Exception {
+        File folder = new File(folderPath);
+        if (!folder.exists() || !folder.isDirectory()) {
+            throw new IllegalArgumentException("Carpeta no existe: " + folderPath);
+        }
+        
+        Files.createDirectories(Paths.get(outputPath));
+        
+        List<File> allFiles = getAllFiles(folder);
+        int totalFiles = allFiles.size();
+        
+        for (int i = 0; i < allFiles.size(); i++) {
+            File file = allFiles.get(i);
+            try {
+                if (callback != null) {
+                    callback.update((i * 100) / totalFiles, 
+                        "Recuperando archivo " + (i + 1) + " de " + totalFiles + ": " + file.getName());
+                }
+                
+                recoverFile(file.getAbsolutePath(), outputPath, password, null);
+            } catch (Exception e) {
+                System.err.println("Error recuperando archivo: " + file.getName() + " - " + e.getMessage());
+            }
+        }
+        
+        if (callback != null) callback.update(100, "Carpeta recuperada completamente");
+    }
+    
+    private List<File> getAllFiles(File folder) {
+        List<File> files = new ArrayList<>();
+        File[] folderFiles = folder.listFiles();
+        if (folderFiles != null) {
+            for (File file : folderFiles) {
+                if (file.isDirectory()) {
+                    files.addAll(getAllFiles(file));
+                } else {
+                    files.add(file);
+                }
+            }
+        }
+        return files;
+    }
+    
+    // MÉTODOS AUXILIARES MEJORADOS
+    
+    private String getNewFilePath(String originalPath, String operation) {
+        File originalFile = new File(originalPath);
+        String parent = originalFile.getParent();
+        String newName = getNewFileName(originalFile.getName(), operation);
+        return new File(parent, newName).getAbsolutePath();
+    }
+    
+    private String getNewFileName(String originalFileName, String operation) {
+        String baseName = originalFileName;
+        int lastDot = baseName.lastIndexOf('.');
+        if (lastDot > 0) {
+            baseName = baseName.substring(0, lastDot);
+        }
+        
+        switch (operation) {
+            case "compress": return baseName + ".cmp";
+            case "encrypt": return baseName + ".enc";
+            case "both": return baseName + ".ec";
+            default: return baseName + ".processed";
+        }
+    }
+    
+    private void saveProcessedFile(String filePath, byte[] data, String originalName, String operation) throws Exception {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        
+        dos.writeUTF(originalName);
+        dos.writeUTF(operation);
+        dos.writeInt(data.length);
+        dos.write(data);
+        dos.flush();
+        
+        Files.write(Paths.get(filePath), baos.toByteArray());
+    }
+    
+    private ProcessedFileInfo extractFileInfo(byte[] fileData) throws Exception {
+        if (fileData == null || fileData.length < 20) {
+            throw new IOException("Archivo corrupto o demasiado pequeño");
+        }
+        
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(fileData));
+        
+        String originalName = dis.readUTF();
+        String operation = dis.readUTF();
+        int dataLength = dis.readInt();
+        
+        // Validaciones exhaustivas
+        if (dataLength < 0) {
+            throw new IOException("Longitud de datos negativa: " + dataLength);
+        }
+        
+        if (dataLength > fileData.length * 2) {
+            throw new IOException("Longitud de datos excesiva: " + dataLength);
+        }
+        
+        if (dis.available() < dataLength) {
+            throw new EOFException("Datos insuficientes. Esperados: " + dataLength + 
+                                 ", Disponibles: " + dis.available());
+        }
+        
+        byte[] data = new byte[dataLength];
+        dis.readFully(data);
+        
+        return new ProcessedFileInfo(originalName, operation, data);
+    }
+    
+    private String getOperationSuffix(String operation) {
+        switch (operation) {
+            case "compress": return "comprimido";
+            case "encrypt": return "encriptado";
+            case "both": return "comprimido_encriptado";
+            default: return "procesado";
+        }
+    }
+    
+    private String getOperationName(String operation) {
+        switch (operation) {
+            case "compress": return "compresión";
+            case "encrypt": return "encriptación";
+            case "both": return "compresión_y_encriptación";
+            default: return "procesado";
+        }
+    }
+    
+    private String determineOperation(String filePath) {
+        if (filePath.endsWith(".ec")) return "both";
+        if (filePath.endsWith(".enc")) return "encrypt";
+        if (filePath.endsWith(".cmp")) return "compress";
+        throw new IllegalArgumentException("Extensión no reconocida: " + filePath);
+    }
+    
+    private byte[] compressData(byte[] data, ProgressCallback callback) throws Exception {
+        List<LZ77Token> lz77Compressed = lz77.compress(data, callback);
+        byte[] lz77Bytes = serializeLZ77(lz77Compressed);
+        
+        HuffmanResult huffmanResult = huffman.compress(lz77Bytes, callback);
+        
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        
+        dos.writeInt(huffmanResult.compressed.length);
+        dos.write(huffmanResult.compressed);
+        
+        dos.writeInt(huffmanResult.codes.size());
+        for (Map.Entry<Byte, String> entry : huffmanResult.codes.entrySet()) {
+            dos.writeByte(entry.getKey());
+            byte[] codeBytes = entry.getValue().getBytes("UTF-8");
+            dos.writeShort(codeBytes.length);
+            dos.write(codeBytes);
+        }
+        
+        dos.writeInt(huffmanResult.padding);
+        dos.flush();
+        
+        return baos.toByteArray();
+    }
+    
+    private byte[] decompressData(byte[] data, ProgressCallback callback) throws Exception {
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data));
+        
+        int compressedLen = dis.readInt();
+        if (compressedLen < 0 || compressedLen > data.length) {
+            throw new EOFException("Longitud de datos comprimidos inválida: " + compressedLen);
+        }
+        
+        byte[] huffmanData = new byte[compressedLen];
+        dis.readFully(huffmanData);
+        
+        int codesSize = dis.readInt();
+        if (codesSize < 0 || codesSize > 10000) {
+            throw new EOFException("Número de códigos Huffman inválido: " + codesSize);
+        }
+        
+        Map<Byte, String> codes = new HashMap<>();
+        for (int i = 0; i < codesSize; i++) {
+            byte key = dis.readByte();
+            short codeLen = dis.readShort();
+            if (codeLen < 0 || codeLen > 1000) {
+                throw new EOFException("Longitud de código Huffman inválida: " + codeLen);
+            }
+            byte[] codeBytes = new byte[codeLen];
+            dis.readFully(codeBytes);
+            String value = new String(codeBytes, "UTF-8");
+            codes.put(key, value);
+        }
+        
+        int padding = dis.readInt();
+        if (padding < 0 || padding > 7) {
+            throw new EOFException("Valor de padding inválido: " + padding);
+        }
+        
+        byte[] lz77Bytes = huffman.decompress(huffmanData, codes, padding, callback);
+        List<LZ77Token> lz77Tokens = deserializeLZ77(lz77Bytes);
+        return lz77.decompress(lz77Tokens, callback);
+    }
+    
+    private byte[] serializeLZ77(List<LZ77Token> tokens) {
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        DataOutputStream dos = new DataOutputStream(baos);
+        
+        try {
+            dos.writeInt(tokens.size());
+            for (LZ77Token token : tokens) {
+                dos.writeShort(Math.min(token.offset, 65535));
+                dos.writeShort(Math.min(token.length, 65535));
+                dos.writeByte(token.nextChar);
+            }
+            dos.flush();
+        } catch (IOException e) {
+            throw new RuntimeException("Error serializando tokens LZ77", e);
+        }
+        
+        return baos.toByteArray();
+    }
+    
+    private List<LZ77Token> deserializeLZ77(byte[] data) {
+        List<LZ77Token> tokens = new ArrayList<>();
+        DataInputStream dis = new DataInputStream(new ByteArrayInputStream(data));
+        
+        try {
+            int size = dis.readInt();
+            // Validación más estricta
+            if (size < 0 || size > data.length / 5 || size > 1000000) {
+                throw new EOFException("Número de tokens LZ77 inválido: " + size);
+            }
+            
+            for (int i = 0; i < size; i++) {
+                int offset = dis.readShort() & 0xFFFF;
+                int length = dis.readShort() & 0xFFFF;
+                byte nextChar = dis.readByte();
+                
+                // Validar rangos razonables
+                if (offset < 0 || length < 0 || offset > 8192 || length > 256) {
+                    throw new IOException("Token LZ77 inválido en posición " + i);
+                }
+                
+                tokens.add(new LZ77Token(offset, length, nextChar));
+            }
+            
+            // Verificar que no queden bytes extra
+            if (dis.available() > 0) {
+                throw new IOException("Bytes residuales en stream LZ77");
+            }
+        } catch (IOException e) {
+            throw new RuntimeException("Error deserializando tokens LZ77: " + e.getMessage(), e);
+        }
+        
+        return tokens;
+    }
+    
+    public void saveLog() {
+        try {
+            StringBuilder sb = new StringBuilder();
+            sb.append("========================================\n");
+            sb.append("  LOG DE OPERACIONES\n");
+            sb.append("  Sistema de Gestión de Archivos Seguros\n");
+            sb.append("========================================\n\n");
+            
+            for (int i = 0; i < logEntries.size(); i++) {
+                LogEntry entry = logEntries.get(i);
+                sb.append(String.format("--- Operación %d ---\n", i + 1));
+                sb.append(String.format("Archivo original: %s\n", entry.originalFile));
+                sb.append(String.format("Archivo nuevo: %s\n", entry.newFile));
+                sb.append(String.format("Operación: %s\n", entry.operation));
+                sb.append(String.format("Tamaño original: %,d bytes\n", entry.originalSize));
+                sb.append(String.format("Tamaño nuevo: %,d bytes\n", entry.newSize));
+                if (entry.compressionRatio > 0) {
+                    sb.append(String.format("Tasa de compresión: %.2f%%\n", entry.compressionRatio));
+                }
+                sb.append(String.format("Tiempo total: %.3f segundos\n", entry.totalTime));
+                sb.append(String.format("Fecha y hora: %s\n\n", entry.timestamp));
+            }
+            
+            Files.write(Paths.get("operations_log.txt"), sb.toString().getBytes());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    public List<LogEntry> getLogEntries() {
+        return new ArrayList<>(logEntries);
+    }
+}
+
+// ============================================================================
+// CLASES DE DATOS
+// ============================================================================
+class ProcessResult {
+    String newPath;
+    double compressionRatio;
+    
+    public ProcessResult(String newPath, double compressionRatio) {
+        this.newPath = newPath;
+        this.compressionRatio = compressionRatio;
+    }
+}
+
+class LogEntry {
+    String originalFile;
+    String newFile;
+    String operation;
+    long originalSize;
+    long newSize;
+    double compressionRatio;
+    double totalTime;
+    String timestamp;
+}
